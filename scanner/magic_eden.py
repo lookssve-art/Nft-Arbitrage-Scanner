@@ -196,7 +196,7 @@ def _parse_listing(item: dict) -> NFTListing | None:
         price_eur = convert_to_eur(price, currency.value)
 
         # Direct Magic Eden link to this specific NFT
-        me_url = f"https://magiceden.us/item-details/solana/{token_mint}"
+        me_url = f"https://magiceden.us/item-details/{token_mint}"
 
         # Parse card attributes from the exact title
         card_attrs = parse_card_title(title)
