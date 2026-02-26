@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "nft-arbitrage-scanner"
+version = "1.0.0"
+description = "NFT Arbitrage Scanner: Magic Eden (Collector Crypt) to eBay - Pokemon Graded Cards"
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.9.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "ruff>=0.2.0",
+]
+
+[project.scripts]
+nft-scanner = "scanner.cli:main"
