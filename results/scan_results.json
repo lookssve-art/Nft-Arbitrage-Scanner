@@ -5,12 +5,26 @@
     "usd_eur": 0.847304,
     "sol_eur": 74.01
   },
-  "total_pokemon_scanned": 2563,
+  "total_pokemon_scanned": 2561,
   "source": "eBay Sold Items (ebay.com)",
-  "sort": "Recently Listed (updatedAt desc)",
+  "sort": "All listings by price (full collection scan)",
   "profitable_opportunities": [
     {
       "rank": 1,
+      "title": "2021 #078 Full Art/Jolteon V PSA 10 Japanese Sword & Shield Eevee Heroes",
+      "grading": "PSA 10",
+      "me_sol": 0.5,
+      "me_eur": 37.01,
+      "ebay_avg_usd": 155.0,
+      "ebay_avg_eur": 131.33,
+      "profit_pct": 254.8,
+      "ebay_sold_count": 12,
+      "confidence": "HIGH",
+      "me_url": "https://magiceden.us/item-details/VjushhVdLs9rVJn2rWwyGbfFADtbABCk7X1yj6mycgt",
+      "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Jolteon+V+PSA+10+Japanese+Eevee+Heroes+full+art+Pokemon&LH_Complete=1&LH_Sold=1"
+    },
+    {
+      "rank": 2,
       "title": "2022 #228 Full Art/Darkrai Vstar CGC 10 Japanese Sword & Shield Vstar Universe",
       "grading": "CGC 10",
       "me_sol": 0.3,
@@ -24,7 +38,21 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Darkrai+Vstar+CGC+10+Japanese+Vstar+Universe+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 2,
+      "rank": 3,
+      "title": "2022 #051 Mewtwo Vstar CGC 10 Pristine Japanese Sword & Shield Vstar Universe",
+      "grading": "CGC 10 Pristine",
+      "me_sol": 0.5,
+      "me_eur": 37.01,
+      "ebay_avg_usd": 120.0,
+      "ebay_avg_eur": 101.68,
+      "profit_pct": 174.7,
+      "ebay_sold_count": 12,
+      "confidence": "HIGH",
+      "me_url": "https://magiceden.us/item-details/HWYuy4WyqyQH2cHG2KkDDZhrKSAGvMiFsBwWgKkrbj3a",
+      "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Mewtwo+Vstar+CGC+10+Pristine+Japanese+Vstar+Universe+Pokemon&LH_Complete=1&LH_Sold=1"
+    },
+    {
+      "rank": 4,
       "title": "2025 #07 02 Captain Pikachu CGC 10 Pristine Gem Pack Volume 1 - Simplified Chinese",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.22,
@@ -38,7 +66,21 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Captain+Pikachu+CGC+10+Pristine+Gem+Pack+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 3,
+      "rank": 5,
+      "title": "2023 #006 Charizard EX PSA 10 Japanese Sv2a-151",
+      "grading": "PSA 10",
+      "me_sol": 0.5,
+      "me_eur": 37.01,
+      "ebay_avg_usd": 85.0,
+      "ebay_avg_eur": 72.02,
+      "profit_pct": 94.6,
+      "ebay_sold_count": 20,
+      "confidence": "HIGH",
+      "me_url": "https://magiceden.us/item-details/2NsxujaXNX5ZTzCXxTiwX4TxxtQA1ZSYouDw8yFHW54W",
+      "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Charizard+EX+PSA+10+Japanese+151+sv2a+Pokemon&LH_Complete=1&LH_Sold=1"
+    },
+    {
+      "rank": 6,
       "title": "2025 #03 04 Gengar CGC 10 Pristine Gem Pack Volume 3 - Simplified Chinese",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.25,
@@ -52,7 +94,35 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Gengar+CGC+10+Pristine+Gem+Pack+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 4,
+      "rank": 7,
+      "title": "2020 #031 Full Art/Pikachu Vmax CGC 10 Pristine Japanese Sword & Shield Amazing Volt Tackle",
+      "grading": "CGC 10 Pristine",
+      "me_sol": 0.5,
+      "me_eur": 37.01,
+      "ebay_avg_usd": 80.0,
+      "ebay_avg_eur": 67.78,
+      "profit_pct": 83.1,
+      "ebay_sold_count": 64,
+      "confidence": "HIGH",
+      "me_url": "https://magiceden.us/item-details/8uBrQMctoAJuoUKUYsY9RCMERHj32fRueCa11nvEvNmu",
+      "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Pikachu+Vmax+CGC+10+Pristine+Japanese+Pokemon&LH_Complete=1&LH_Sold=1"
+    },
+    {
+      "rank": 8,
+      "title": "2021 #072 Full Art/Flareon V PSA 10 Japanese Sword & Shield Eevee Heroes",
+      "grading": "PSA 10",
+      "me_sol": 1.0,
+      "me_eur": 74.01,
+      "ebay_avg_usd": 155.0,
+      "ebay_avg_eur": 131.33,
+      "profit_pct": 77.5,
+      "ebay_sold_count": 27,
+      "confidence": "HIGH",
+      "me_url": "https://magiceden.us/item-details/TKcc2iseBbzrSbiWuv4BTvAM4SkG1ahnFK5XvydRXnV",
+      "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Flareon+V+PSA+10+Japanese+Eevee+Heroes+full+art+Pokemon&LH_Complete=1&LH_Sold=1"
+    },
+    {
+      "rank": 9,
       "title": "2023 #052 Tyranitar CGC 10 Pristine Japanese Sv2d-Clay Burst",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.25,
@@ -66,7 +136,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Tyranitar+CGC+10+Pristine+Japanese+Clay+Burst+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 5,
+      "rank": 10,
       "title": "2025 #208 Cynthia's Spiritomb CGC 10 Pristine Mega Dream ex - Japanese",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.3,
@@ -80,7 +150,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Cynthia+Spiritomb+CGC+10+Pristine+Japanese+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 6,
+      "rank": 11,
       "title": "2023 #150 Mewtwo PSA 10 Japanese Sv2a-151",
       "grading": "PSA 10",
       "me_sol": 0.5,
@@ -94,7 +164,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Mewtwo+PSA+10+Japanese+151+sv2a+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 7,
+      "rank": 12,
       "title": "2000 #110 Erika's Perfume 1st Edition CGC 10 Gym Heroes",
       "grading": "CGC 10",
       "me_sol": 0.25,
@@ -108,7 +178,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Erika+Perfume+1st+Edition+CGC+10+Gym+Heroes+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 8,
+      "rank": 13,
       "title": "2025 #170 Meloetta EX CGC 10 Pristine Japanese Sv11b-Black Bolt (SAR)",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.48,
@@ -122,7 +192,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Meloetta+EX+CGC+10+Pristine+Japanese+Black+Bolt+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 9,
+      "rank": 14,
       "title": "2022 #072 Full Art/Gardevoir CGC 10 Japanese Incandescent Arcana",
       "grading": "CGC 10",
       "me_sol": 0.25,
@@ -136,7 +206,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Gardevoir+CGC+10+Japanese+Incandescent+Arcana+full+art+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 10,
+      "rank": 15,
       "title": "2022 #080 Full Art/Ho-Oh V PSA 10 Japanese Incandescent Arcana",
       "grading": "PSA 10",
       "me_sol": 0.5,
@@ -150,7 +220,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Ho-Oh+V+PSA+10+Japanese+Incandescent+Arcana+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 11,
+      "rank": 16,
       "title": "2024 #093 Umbreon EX CGC 10 Japanese Sv8a-Terastal Fest EX",
       "grading": "CGC 10",
       "me_sol": 0.25,
@@ -164,7 +234,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Umbreon+EX+CGC+10+Japanese+Terastal+Fest+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 12,
+      "rank": 17,
       "title": "2022 #034 Raichu V CGC 10 Pristine Japanese Star Birth",
       "grading": "CGC 10 Pristine",
       "me_sol": 0.25,
@@ -178,7 +248,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Raichu+V+CGC+10+Pristine+Japanese+Star+Birth+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 13,
+      "rank": 18,
       "title": "2023 #052 Mewtwo CGC 9 Svp EN-SV Black Star Promo",
       "grading": "CGC 9",
       "me_sol": 0.34,
@@ -192,7 +262,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Mewtwo+CGC+9+Black+Star+Promo+052+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 14,
+      "rank": 19,
       "title": "2022 #229 Full Art/Mewtwo V PSA 9 Swsh Black Star Promo",
       "grading": "PSA 9",
       "me_sol": 0.25,
@@ -206,7 +276,7 @@
       "ebay_search": "https://www.ebay.com/sch/i.html?_nkw=Mewtwo+V+PSA+9+SWSH+Black+Star+Promo+Pokemon&LH_Complete=1&LH_Sold=1"
     },
     {
-      "rank": 15,
+      "rank": 20,
       "title": "2025 #232 Iono's Wattrel PSA 10 Japanese SV-P Promo",
       "grading": "PSA 10",
       "me_sol": 0.4,
