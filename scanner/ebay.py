@@ -1,19 +1,23 @@
 """eBay sold items scraper for Pokemon cards.
 
-Searches eBay Germany (ebay.de) for sold items matching exact NFT titles.
-- Uses exact title in quotes for search
+Searches eBay Germany (ebay.de) for sold items matching NFT card titles.
+- Extracts key terms (Pokemon name, grading, set) from NFT title for search
 - Filters by "Sold Items" (Verkaufte Artikel)
 - Region: Germany + EU
 - Currency: EUR
-- Extracts sold prices and listing data
+- Applies strict matching on results
 
-NO fuzzy matching. Uses exact quoted title search.
+Uses smart search: extracts key terms from NFT title rather than exact
+title search, because Magic Eden and eBay use different title formats.
+
+eBay HTML structure (2025+): listings use li.s-card with .text-bold titles.
+Handles both old (.s-item) and new (.s-card) eBay layouts.
 """
 
 import logging
 import re
 import time
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,27 +41,60 @@ _EBAY_SOLD_PARAMS = {
     "_sop": "13",  # Sort by: End date: recent first
 }
 
+# Known Pokemon names for search term extraction
+_POKEMON_NAMES = [
+    "Charizard", "Pikachu", "Mewtwo", "Blastoise", "Venusaur", "Eevee",
+    "Umbreon", "Rayquaza", "Lugia", "Ho-Oh", "Gengar", "Dragonite",
+    "Snorlax", "Mew", "Jolteon", "Flareon", "Vaporeon", "Espeon",
+    "Glaceon", "Leafeon", "Sylveon", "Zapdos", "Articuno", "Moltres",
+    "Raichu", "Kangaskhan", "Diancie", "Swablu", "Zekrom", "Reshiram",
+    "Yveltal", "Victini", "Haunter", "Tapu Koko", "Feraligatr",
+    "Scizor", "Tyranitar", "Bulbasaur", "Meowth", "Gyarados",
+    "Hoopa", "Gardevoir", "Ninetales", "Lucario", "Deoxys",
+    "Ditto", "Shuckle", "Inteleon", "Calyrex", "Machoke",
+]
+
+
+def _extract_search_terms(title: str) -> str:
+    """Extract optimal search terms from an NFT title for eBay search.
+
+    Instead of searching for the exact long NFT title (which never matches
+    eBay's different formatting), extract: Pokemon name + grading + "Pokemon".
+    """
+    # Extract grading info
+    grade_match = re.search(
+        r"\b(PSA|CGC|BGS|Beckett)\s+(\d{1,2}(?:\.\d)?)\b",
+        title,
+        re.IGNORECASE,
+    )
+    grading = grade_match.group(0) if grade_match else ""
+
+    # Extract Pokemon name
+    pokemon = ""
+    for name in sorted(_POKEMON_NAMES, key=len, reverse=True):
+        if name.lower() in title.lower():
+            pokemon = name
+            break
+
+    # Build search query
+    parts = [p for p in [pokemon, grading, "Pokemon"] if p]
+    return " ".join(parts) if len(parts) > 1 else title[:50]
+
 
 def build_ebay_search_url(title: str) -> str:
-    """Build eBay.de search URL for exact title match in sold items."""
-    # Wrap title in quotes for exact match
-    quoted_title = f'"{title}"'
+    """Build eBay.de search URL for sold items matching the card."""
+    search_terms = _extract_search_terms(title)
     params = {
-        "_nkw": quoted_title,
+        "_nkw": search_terms,
         **_EBAY_SOLD_PARAMS,
     }
     return f"{EBAY_SEARCH_URL}?{urlencode(params)}"
 
 
 def search_sold_items(title: str, max_results: int = EBAY_SOLD_SAMPLE_MAX) -> list[EbaySoldItem]:
-    """Search eBay.de for sold items matching the exact title.
+    """Search eBay.de for sold items matching the card title.
 
-    Args:
-        title: The exact NFT title to search for (will be quoted).
-        max_results: Maximum number of results to return.
-
-    Returns:
-        List of EbaySoldItem with parsed prices and attributes.
+    Uses smart keyword extraction for the search, then parses results.
     """
     url = build_ebay_search_url(title)
     logger.info("Searching eBay: %s", url)
@@ -89,39 +126,90 @@ def search_sold_items(title: str, max_results: int = EBAY_SOLD_SAMPLE_MAX) -> li
 
 
 def _parse_search_results(html: str, max_results: int) -> list[EbaySoldItem]:
-    """Parse eBay search results HTML to extract sold items."""
+    """Parse eBay search results HTML to extract sold items.
+
+    Supports both old (.s-item) and new (li.s-card) eBay layouts.
+    """
     soup = BeautifulSoup(html, "lxml")
     items: list[EbaySoldItem] = []
 
-    # eBay uses s-item class for search results
-    result_items = soup.select(".s-item")
+    # Try new layout first (2025+): li.s-card within ul.srp-results
+    result_items = soup.select("ul.srp-results > li.s-card")
 
-    for item_el in result_items:
-        if len(items) >= max_results:
-            break
-
-        sold_item = _parse_single_result(item_el)
-        if sold_item:
-            items.append(sold_item)
+    if result_items:
+        for item_el in result_items:
+            if len(items) >= max_results:
+                break
+            sold_item = _parse_new_layout_result(item_el)
+            if sold_item:
+                items.append(sold_item)
+    else:
+        # Fallback to old layout: .s-item
+        result_items = soup.select(".s-item")
+        for item_el in result_items:
+            if len(items) >= max_results:
+                break
+            sold_item = _parse_old_layout_result(item_el)
+            if sold_item:
+                items.append(sold_item)
 
     logger.info("Found %d sold items on eBay", len(items))
     return items
 
 
-def _parse_single_result(item_el) -> EbaySoldItem | None:
-    """Parse a single eBay search result element."""
+def _parse_new_layout_result(item_el) -> EbaySoldItem | None:
+    """Parse a single eBay result in the new s-card layout (2025+)."""
     try:
-        # Extract title
+        # Title: .text-bold or span[role="heading"]
+        title_el = (
+            item_el.select_one("a .text-bold")
+            or item_el.select_one("a span[role='heading']")
+        )
+        if not title_el:
+            return None
+        title = title_el.get_text(strip=True)
+        if not title:
+            return None
+
+        # Price: find EUR/€ text within the element
+        price_texts = item_el.find_all(string=re.compile(r"EUR|€"))
+        if not price_texts:
+            return None
+        price_eur = _parse_eur_price(price_texts[0].strip())
+        if price_eur is None or price_eur <= 0:
+            return None
+
+        # URL
+        url = ""
+        link_el = item_el.select_one('a[href*="itm/"]')
+        if link_el:
+            url = link_el.get("href", "")
+
+        attributes = parse_card_title(title)
+
+        return EbaySoldItem(
+            title=title,
+            sold_price_eur=price_eur,
+            sold_date="",
+            url=url,
+            attributes=attributes,
+        )
+    except Exception as e:
+        logger.debug("Failed to parse eBay new-layout result: %s", e)
+        return None
+
+
+def _parse_old_layout_result(item_el) -> EbaySoldItem | None:
+    """Parse a single eBay result in the old s-item layout."""
+    try:
         title_el = item_el.select_one(".s-item__title")
         if not title_el:
             return None
         title = title_el.get_text(strip=True)
 
-        # Skip eBay's "Shop on eBay" / "Ergebnisse" header items
         if not title or title.lower().startswith("shop on ebay") or title.lower().startswith("ergebnisse"):
             return None
 
-        # Extract sold price
         price_el = item_el.select_one(".s-item__price")
         if not price_el:
             return None
@@ -130,19 +218,16 @@ def _parse_single_result(item_el) -> EbaySoldItem | None:
         if price_eur is None or price_eur <= 0:
             return None
 
-        # Extract sold date if available
         sold_date = ""
         date_el = item_el.select_one(".s-item__ended-date, .s-item__endedDate, .POSITIVE")
         if date_el:
             sold_date = date_el.get_text(strip=True)
 
-        # Extract URL
         url = ""
         link_el = item_el.select_one("a.s-item__link")
         if link_el:
             url = link_el.get("href", "")
 
-        # Parse card attributes from the eBay title
         attributes = parse_card_title(title)
 
         return EbaySoldItem(
@@ -153,7 +238,7 @@ def _parse_single_result(item_el) -> EbaySoldItem | None:
             attributes=attributes,
         )
     except Exception as e:
-        logger.debug("Failed to parse eBay result: %s", e)
+        logger.debug("Failed to parse eBay old-layout result: %s", e)
         return None
 
 
@@ -165,9 +250,9 @@ def _parse_eur_price(price_text: str) -> float | None:
     - "150,00 €"
     - "EUR 1.500,00"
     - "150.00 €"
+    - "$45.99" (USD)
     """
-    # Remove currency symbols and whitespace
-    cleaned = price_text.replace("EUR", "").replace("€", "").strip()
+    cleaned = price_text.replace("EUR", "").replace("€", "").replace("$", "").strip()
 
     # Handle "Bis" / "to" price ranges - take the first price
     if " bis " in cleaned.lower():
@@ -176,14 +261,10 @@ def _parse_eur_price(price_text: str) -> float | None:
         cleaned = cleaned.lower().split(" to ")[0].strip()
 
     # German format: 1.500,00 → 1500.00
-    # First check if it uses German format (comma as decimal separator)
     if "," in cleaned:
-        # Remove thousands separators (dots in German format)
         cleaned = cleaned.replace(".", "")
-        # Replace decimal comma with dot
         cleaned = cleaned.replace(",", ".")
 
-    # Extract the numeric value
     match = re.search(r"(\d+(?:\.\d+)?)", cleaned)
     if match:
         try:

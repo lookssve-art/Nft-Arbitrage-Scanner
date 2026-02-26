@@ -2,7 +2,9 @@
 
 Fetches listings from the Collector Crypt collection on Magic Eden (Solana).
 - Always uses "Recently Listed" sort order
-- Paginates correctly to collect up to MAX_NFT_COUNT items
+- Paginates correctly to collect up to MAX_NFT_COUNT Pokemon items
+- Fetches token metadata to get exact card names
+- Filters for Pokemon cards only (via category attribute)
 - Extracts exact title, price, and currency (SOL/USDC)
 - Never modifies or trims the title
 """
@@ -33,6 +35,11 @@ LAMPORTS_PER_SOL = 1_000_000_000
 # USDC has 6 decimals on Solana
 USDC_DECIMALS = 1_000_000
 
+# Keywords that identify a Pokemon card in the title or attributes
+_POKEMON_KEYWORDS = {"pokemon", "pokémon", "pikachu", "charizard", "mewtwo", "blastoise",
+                     "venusaur", "eevee", "snorlax", "gengar", "dragonite", "mew",
+                     "lugia", "ho-oh", "rayquaza", "umbreon", "espeon"}
+
 
 def _build_headers() -> dict[str, str]:
     """Build request headers including API key if available."""
@@ -44,24 +51,53 @@ def _build_headers() -> dict[str, str]:
 
 def _get_listing_url(symbol: str, offset: int, limit: int) -> str:
     """Build the API URL for fetching listings sorted by 'Recently Listed'."""
-    # The Magic Eden v2 API supports sorting by 'listPrice' (asc/desc)
-    # and filtering. For "recently listed" we sort by listing recency.
-    # The API endpoint: GET /v2/collections/{symbol}/listings
-    # Query params: offset, limit, sort (listPrice), sortDirection (asc)
     return (
         f"{MAGIC_EDEN_API_BASE}/collections/{quote(symbol)}/listings"
         f"?offset={offset}&limit={limit}"
     )
 
 
+def _fetch_token_metadata(token_mint: str, headers: dict) -> dict | None:
+    """Fetch token metadata from Magic Eden to get the card name and attributes."""
+    url = f"{MAGIC_EDEN_API_BASE}/tokens/{token_mint}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        if resp.status_code == 429:
+            logger.warning("Rate limited on metadata. Waiting 5 seconds...")
+            time.sleep(5)
+            resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.debug("Failed to fetch metadata for %s: %s", token_mint, e)
+        return None
+
+
+def _is_pokemon_card(name: str, attributes: list[dict]) -> bool:
+    """Check if a card is a Pokemon card based on name and attributes."""
+    name_lower = name.lower()
+    # Check category attribute
+    for attr in attributes:
+        trait = str(attr.get("trait_type", "")).lower()
+        value = str(attr.get("value", "")).lower()
+        if trait in ("category", "sport", "type"):
+            if "pokemon" in value or "pokémon" in value:
+                return True
+    # Check name for Pokemon keywords
+    for kw in _POKEMON_KEYWORDS:
+        if kw in name_lower:
+            return True
+    return False
+
+
 def fetch_listings(
     symbol: str = COLLECTION_SYMBOL,
     max_count: int = MAX_NFT_COUNT,
 ) -> list[NFTListing]:
-    """Fetch up to max_count NFT listings from Magic Eden.
+    """Fetch up to max_count Pokemon NFT listings from Magic Eden.
 
-    Uses pagination to ensure we collect the requested number of items.
-    Sorts by recently listed (API default listing order).
+    Fetches listings with pagination, then retrieves metadata for each token
+    to get the actual card name. Filters to Pokemon cards only.
 
     Returns:
         List of NFTListing objects with exact titles, prices, and EUR conversions.
@@ -69,32 +105,33 @@ def fetch_listings(
     headers = _build_headers()
     all_listings: list[NFTListing] = []
     offset = 0
-    page_size = min(MAGIC_EDEN_PAGE_SIZE, max_count)
+    page_size = MAGIC_EDEN_PAGE_SIZE
     empty_pages = 0
+    # We need to over-fetch since not all cards are Pokemon
+    # Collector Crypt has ~20% Pokemon cards, so fetch ~5x more raw listings
+    max_raw_pages = (max_count * 5) // page_size + 10
 
     logger.info(
-        "Fetching up to %d listings from collection '%s'...",
+        "Fetching up to %d Pokemon listings from collection '%s'...",
         max_count,
         symbol,
     )
 
-    while len(all_listings) < max_count:
-        remaining = max_count - len(all_listings)
-        limit = min(page_size, remaining)
-        url = _get_listing_url(symbol, offset, limit)
-
-        logger.debug("Requesting: %s", url)
+    pages_fetched = 0
+    while len(all_listings) < max_count and pages_fetched < max_raw_pages:
+        url = _get_listing_url(symbol, offset, page_size)
+        logger.debug("Requesting page %d: %s", pages_fetched + 1, url)
 
         try:
             resp = requests.get(url, headers=headers, timeout=15)
             resp.raise_for_status()
             data = resp.json()
-        except requests.exceptions.HTTPError as e:
+        except requests.exceptions.HTTPError:
             if resp.status_code == 429:
                 logger.warning("Rate limited. Waiting 5 seconds...")
                 time.sleep(5)
                 continue
-            logger.error("HTTP error fetching listings: %s", e)
+            logger.error("HTTP error fetching listings (status %d)", resp.status_code)
             break
         except Exception as e:
             logger.error("Error fetching listings: %s", e)
@@ -105,7 +142,8 @@ def fetch_listings(
             if empty_pages >= 3:
                 logger.info("No more listings available (3 empty pages).")
                 break
-            offset += limit
+            offset += page_size
+            pages_fetched += 1
             time.sleep(REQUEST_DELAY)
             continue
 
@@ -115,71 +153,78 @@ def fetch_listings(
             if len(all_listings) >= max_count:
                 break
 
-            listing = _parse_listing(item, symbol)
+            listing = _parse_listing_with_metadata(item, headers)
             if listing:
                 all_listings.append(listing)
+                logger.info(
+                    "[%d/%d] %s | %.4f %s (€%.2f)",
+                    len(all_listings), max_count,
+                    listing.title[:60],
+                    listing.price, listing.currency.value,
+                    listing.price_eur,
+                )
 
-        offset += limit
-        logger.info("Collected %d/%d listings...", len(all_listings), max_count)
+        offset += page_size
+        pages_fetched += 1
+        logger.info(
+            "Page %d done. Pokemon found: %d/%d",
+            pages_fetched, len(all_listings), max_count,
+        )
         time.sleep(REQUEST_DELAY)
 
-    logger.info("Total listings fetched: %d", len(all_listings))
+    logger.info("Total Pokemon listings fetched: %d", len(all_listings))
     return all_listings
 
 
-def _parse_listing(item: dict, symbol: str) -> NFTListing | None:
-    """Parse a single listing from the API response.
+def _parse_listing_with_metadata(item: dict, headers: dict) -> NFTListing | None:
+    """Parse a single listing, fetching token metadata for the card name.
 
-    Extracts:
-    - Exact full title (never modified)
-    - Price in original currency
-    - Currency type (SOL or USDC)
-    - Mint address for direct linking
+    Only returns Pokemon cards. Non-Pokemon cards return None.
     """
     try:
-        # Extract token info
         token_mint = item.get("tokenMint", "")
-        extra = item.get("extra", {}) or {}
-        token_name = extra.get("name", "") or item.get("tokenMint", "")
-
-        # Try to get the name from token metadata
-        # The API returns the NFT name in the 'extra' field or we need
-        # to fetch it separately. Some responses include it directly.
-        title = token_name
-
-        # If we don't have a title, try alternate fields
-        if not title or title == token_mint:
-            rarity = extra.get("rarity", {}) or {}
-            title = rarity.get("name", token_mint)
-
-        if not title:
-            logger.debug("Skipping listing with no title: %s", token_mint)
+        if not token_mint:
             return None
 
-        # Extract price - Magic Eden returns price in lamports for SOL
+        # Fetch token metadata to get the real card name
+        metadata = _fetch_token_metadata(token_mint, headers)
+        if not metadata:
+            return None
+
+        title = metadata.get("name", "")
+        if not title:
+            return None
+
+        # Check if it's a Pokemon card
+        attributes = metadata.get("attributes", []) or []
+        if not _is_pokemon_card(title, attributes):
+            logger.debug("Skipping non-Pokemon card: %s", title)
+            return None
+
+        # Extract price
         price_raw = item.get("price", 0)
-        # Default currency is SOL on Magic Eden Solana
         currency = Currency.SOL
         price = float(price_raw)
 
-        # Check if payment is in USDC via token info
+        # Check if payment is in USDC
         payment_mint = item.get("paymentMint", "")
-        # USDC mint on Solana mainnet
         usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         if payment_mint == usdc_mint:
             currency = Currency.USDC
-            # USDC amounts may come in raw decimals
             if price > 1_000_000:
                 price = price / USDC_DECIMALS
 
         # Convert to EUR
         price_eur = convert_to_eur(price, currency.value)
 
-        # Build Magic Eden URL for this specific NFT
+        # Build Magic Eden URL
         me_url = f"https://magiceden.us/item-details/solana/{token_mint}"
 
         # Parse card attributes from the exact title
-        attributes = parse_card_title(title)
+        card_attrs = parse_card_title(title)
+
+        # Brief pause for rate limiting on metadata calls
+        time.sleep(0.3)
 
         return NFTListing(
             title=title,
@@ -188,7 +233,7 @@ def _parse_listing(item: dict, symbol: str) -> NFTListing | None:
             price_eur=price_eur,
             mint_address=token_mint,
             magic_eden_url=me_url,
-            attributes=attributes,
+            attributes=card_attrs,
         )
     except Exception as e:
         logger.debug("Failed to parse listing: %s", e)
