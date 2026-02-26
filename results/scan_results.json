@@ -8,6 +8,58 @@
   "total_pokemon_scanned": 2561,
   "source": "eBay Sold Items (ebay.com)",
   "sort": "All listings by price (full collection scan)",
+  "recent_scan": {
+    "description": "Scan of 100 most recently listed NFTs (80 Pokemon)",
+    "total_fetched": 100,
+    "pokemon_found": 80,
+    "checked_against_ebay": 19,
+    "profitable": 4,
+    "overpriced_on_me": 13,
+    "summary": "Most recently listed cards are OVERPRICED on ME vs eBay. Only 4 of 19 checked are profitable - and 3 of those were already in our full-scan results. New sellers are pricing too high.",
+    "recently_listed_opportunities": [
+      {
+        "title": "2023 #150 Mewtwo PSA 10 Japanese Sv2a-151",
+        "me_sol": 0.5,
+        "ebay_avg_usd": 70.58,
+        "profit_pct": 62.6,
+        "note": "Already in full-scan results rank #11"
+      },
+      {
+        "title": "2022 #051 Mewtwo Vstar CGC 10 Pristine Japanese Vstar Universe",
+        "me_sol": 1.0,
+        "ebay_avg_usd": 120.0,
+        "profit_pct": 37.4,
+        "note": "Listed at 1.00 SOL - better deal at 0.50 SOL exists (rank #3)"
+      },
+      {
+        "title": "2024 #197 Pikachu CGC 10 Pristine Japanese SV-P Promo",
+        "me_sol": 0.48,
+        "ebay_avg_usd": 52.0,
+        "profit_pct": 24.0,
+        "note": "NEW - 13 sold on eBay, borderline profitable"
+      },
+      {
+        "title": "2025 #232 Iono's Wattrel PSA 10 Japanese SV-P Promo",
+        "me_sol": 0.4,
+        "ebay_avg_usd": 42.47,
+        "profit_pct": 20.2,
+        "note": "Already in full-scan results rank #20"
+      }
+    ],
+    "recently_listed_overpriced": [
+      {"title": "Mew CGC 9 Crown Zenith", "me_sol": 40.0, "ebay_avg_usd": 35, "loss_pct": -99.0},
+      {"title": "Raichu Holo CGC 10 Pristine Eevee Heroes", "me_sol": 1.44, "ebay_avg_usd": 20, "loss_pct": -84.1},
+      {"title": "Espeon EX CGC 10 Pristine Prismatic Evolutions #034", "me_sol": 2.0, "ebay_avg_usd": 37, "loss_pct": -78.8},
+      {"title": "Charizard Vmax CGC 9.5 Black Star Promo", "me_sol": 1.2, "ebay_avg_usd": 58, "loss_pct": -44.7},
+      {"title": "Galarian Articuno V PSA 10 Chilling Reign", "me_sol": 3.3, "ebay_avg_usd": 170, "loss_pct": -41.0},
+      {"title": "Sylveon EX PSA 10 Prismatic Evolutions #041", "me_sol": 0.9, "ebay_avg_usd": 52, "loss_pct": -33.9},
+      {"title": "Radiant Charizard PSA 9 Go", "me_sol": 0.5, "ebay_avg_usd": 31, "loss_pct": -29.0},
+      {"title": "Flying Pikachu Vmax CGC 10 Pristine Celebrations", "me_sol": 1.0, "ebay_avg_usd": 62, "loss_pct": -29.0},
+      {"title": "Latias CGC 10 Japanese Vstar Universe", "me_sol": 0.5, "ebay_avg_usd": 33, "loss_pct": -24.4},
+      {"title": "Gouging Fire EX PSA 10 Temporal Forces #188", "me_sol": 0.5, "ebay_avg_usd": 39, "loss_pct": -10.7},
+      {"title": "Rayquaza CGC 10 Pristine Vivid Voltage", "me_sol": 1.8, "ebay_avg_usd": 147, "loss_pct": -6.5}
+    ]
+  },
   "profitable_opportunities": [
     {
       "rank": 1,
