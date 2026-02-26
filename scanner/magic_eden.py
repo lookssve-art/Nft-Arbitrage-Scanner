@@ -1,12 +1,14 @@
 """Magic Eden API scraper for Collector Crypt Pokemon card NFTs.
 
 Fetches listings from the Collector Crypt collection on Magic Eden (Solana).
-- Always uses "Recently Listed" sort order
-- Paginates correctly to collect up to MAX_NFT_COUNT Pokemon items
-- Fetches token metadata to get exact card names
-- Filters for Pokemon cards only (via category attribute)
+- ALWAYS sorts by "Recently Listed" (sort=updatedAt, sort_direction=desc)
+- Never defaults to "Trending" or price sort
+- Paginates correctly (limit=100 per page) to collect up to MAX_NFT_COUNT Pokemon items
+- Uses token.name from the API response (no separate metadata call needed)
+- Filters for Pokemon cards only (via Category attribute)
 - Extracts exact title, price, and currency (SOL/USDC)
 - Never modifies or trims the title
+- Provides direct Magic Eden links per NFT
 """
 
 import logging
@@ -21,7 +23,6 @@ from scanner.config import (
     DEFAULT_HEADERS,
     MAGIC_EDEN_API_BASE,
     MAGIC_EDEN_API_KEY,
-    MAGIC_EDEN_PAGE_SIZE,
     MAX_NFT_COUNT,
     REQUEST_DELAY,
 )
@@ -30,15 +31,8 @@ from scanner.models import Currency, NFTListing
 
 logger = logging.getLogger(__name__)
 
-# Lamports to SOL conversion
-LAMPORTS_PER_SOL = 1_000_000_000
 # USDC has 6 decimals on Solana
 USDC_DECIMALS = 1_000_000
-
-# Keywords that identify a Pokemon card in the title or attributes
-_POKEMON_KEYWORDS = {"pokemon", "pokémon", "pikachu", "charizard", "mewtwo", "blastoise",
-                     "venusaur", "eevee", "snorlax", "gengar", "dragonite", "mew",
-                     "lugia", "ho-oh", "rayquaza", "umbreon", "espeon"}
 
 
 def _build_headers() -> dict[str, str]:
@@ -50,42 +44,24 @@ def _build_headers() -> dict[str, str]:
 
 
 def _get_listing_url(symbol: str, offset: int, limit: int) -> str:
-    """Build the API URL for fetching listings sorted by 'Recently Listed'."""
+    """Build the API URL for fetching listings sorted by 'Recently Listed'.
+
+    CRITICAL: Always uses sort=updatedAt&sort_direction=desc to get
+    recently listed items, NOT default price sort.
+    """
     return (
         f"{MAGIC_EDEN_API_BASE}/collections/{quote(symbol)}/listings"
         f"?offset={offset}&limit={limit}"
+        f"&sort=updatedAt&sort_direction=desc"
     )
 
 
-def _fetch_token_metadata(token_mint: str, headers: dict) -> dict | None:
-    """Fetch token metadata from Magic Eden to get the card name and attributes."""
-    url = f"{MAGIC_EDEN_API_BASE}/tokens/{token_mint}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code == 429:
-            logger.warning("Rate limited on metadata. Waiting 5 seconds...")
-            time.sleep(5)
-            resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.debug("Failed to fetch metadata for %s: %s", token_mint, e)
-        return None
-
-
-def _is_pokemon_card(name: str, attributes: list[dict]) -> bool:
-    """Check if a card is a Pokemon card based on name and attributes."""
-    name_lower = name.lower()
-    # Check category attribute
+def _is_pokemon_card(attributes: list[dict]) -> bool:
+    """Check if a card is a Pokemon card based on its Category attribute."""
     for attr in attributes:
         trait = str(attr.get("trait_type", "")).lower()
         value = str(attr.get("value", "")).lower()
-        if trait in ("category", "sport", "type"):
-            if "pokemon" in value or "pokémon" in value:
-                return True
-    # Check name for Pokemon keywords
-    for kw in _POKEMON_KEYWORDS:
-        if kw in name_lower:
+        if trait == "category" and ("pokemon" in value or "pokémon" in value):
             return True
     return False
 
@@ -96,23 +72,24 @@ def fetch_listings(
 ) -> list[NFTListing]:
     """Fetch up to max_count Pokemon NFT listings from Magic Eden.
 
-    Fetches listings with pagination, then retrieves metadata for each token
-    to get the actual card name. Filters to Pokemon cards only.
+    ALWAYS sorted by Recently Listed (updatedAt desc).
+    Uses limit=100 per page for efficiency.
+    Filters to Pokemon cards only via Category attribute.
 
     Returns:
-        List of NFTListing objects with exact titles, prices, and EUR conversions.
+        List of NFTListing objects with exact titles, prices, EUR conversions,
+        and direct Magic Eden links.
     """
     headers = _build_headers()
     all_listings: list[NFTListing] = []
     offset = 0
-    page_size = MAGIC_EDEN_PAGE_SIZE
+    page_size = 100  # API supports up to 100 per page
     empty_pages = 0
-    # We need to over-fetch since not all cards are Pokemon
-    # Collector Crypt has ~20% Pokemon cards, so fetch ~5x more raw listings
-    max_raw_pages = (max_count * 5) // page_size + 10
+    # Over-fetch since not all cards are Pokemon (~60% are Pokemon based on data)
+    max_raw_pages = (max_count * 3) // page_size + 5
 
     logger.info(
-        "Fetching up to %d Pokemon listings from collection '%s'...",
+        "Fetching up to %d Pokemon listings from '%s' (Recently Listed)...",
         max_count,
         symbol,
     )
@@ -153,15 +130,15 @@ def fetch_listings(
             if len(all_listings) >= max_count:
                 break
 
-            listing = _parse_listing_with_metadata(item, headers)
+            listing = _parse_listing(item)
             if listing:
                 all_listings.append(listing)
                 logger.info(
-                    "[%d/%d] %s | %.4f %s (€%.2f)",
+                    "[%d/%d] %.4f %s (€%.2f) | %s",
                     len(all_listings), max_count,
-                    listing.title[:60],
                     listing.price, listing.currency.value,
                     listing.price_eur,
+                    listing.title[:60],
                 )
 
         offset += page_size
@@ -176,29 +153,28 @@ def fetch_listings(
     return all_listings
 
 
-def _parse_listing_with_metadata(item: dict, headers: dict) -> NFTListing | None:
-    """Parse a single listing, fetching token metadata for the card name.
+def _parse_listing(item: dict) -> NFTListing | None:
+    """Parse a single listing from the API response.
+
+    The API returns token info directly in item['token'], including:
+    - token.name: exact card title
+    - token.mintAddress: for direct link
+    - token.attributes: Category, Grading Company, Grade, etc.
 
     Only returns Pokemon cards. Non-Pokemon cards return None.
     """
     try:
-        token_mint = item.get("tokenMint", "")
-        if not token_mint:
-            return None
+        token = item.get("token", {}) or {}
+        token_mint = token.get("mintAddress", "") or item.get("tokenMint", "")
 
-        # Fetch token metadata to get the real card name
-        metadata = _fetch_token_metadata(token_mint, headers)
-        if not metadata:
-            return None
-
-        title = metadata.get("name", "")
+        # Get the card name directly from token data
+        title = token.get("name", "")
         if not title:
             return None
 
-        # Check if it's a Pokemon card
-        attributes = metadata.get("attributes", []) or []
-        if not _is_pokemon_card(title, attributes):
-            logger.debug("Skipping non-Pokemon card: %s", title)
+        # Get attributes and check if Pokemon
+        attributes = token.get("attributes", []) or []
+        if not _is_pokemon_card(attributes):
             return None
 
         # Extract price
@@ -207,24 +183,23 @@ def _parse_listing_with_metadata(item: dict, headers: dict) -> NFTListing | None
         price = float(price_raw)
 
         # Check if payment is in USDC
-        payment_mint = item.get("paymentMint", "")
+        price_info = item.get("priceInfo", {}) or {}
+        sol_price = price_info.get("solPrice", {}) or {}
+        payment_address = sol_price.get("address", "")
         usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-        if payment_mint == usdc_mint:
+        if payment_address == usdc_mint:
             currency = Currency.USDC
             if price > 1_000_000:
                 price = price / USDC_DECIMALS
 
-        # Convert to EUR
+        # Convert to EUR using live rates
         price_eur = convert_to_eur(price, currency.value)
 
-        # Build Magic Eden URL
+        # Direct Magic Eden link to this specific NFT
         me_url = f"https://magiceden.us/item-details/solana/{token_mint}"
 
         # Parse card attributes from the exact title
         card_attrs = parse_card_title(title)
-
-        # Brief pause for rate limiting on metadata calls
-        time.sleep(0.3)
 
         return NFTListing(
             title=title,
