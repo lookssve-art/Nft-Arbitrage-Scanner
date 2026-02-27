@@ -1,17 +1,10 @@
 """eBay sold items scraper for Pokemon cards.
 
 Searches eBay Germany (ebay.de) for sold items matching NFT card titles.
-- Extracts key terms (Pokemon name, grading, set) from NFT title for search
-- Filters by "Sold Items" (Verkaufte Artikel)
-- Region: Germany + EU
-- Currency: EUR
-- Applies strict matching on results
-
-Uses smart search: extracts key terms from NFT title rather than exact
-title search, because Magic Eden and eBay use different title formats.
-
-eBay HTML structure (2025+): listings use li.s-card with .text-bold titles.
-Handles both old (.s-item) and new (.s-card) eBay layouts.
+- Builds targeted search queries using pokemon name + variant + card number + grading
+- Filters out lots/bundles
+- Supports both old (.s-item) and new (.s-card) eBay HTML layouts
+- Parses prices in EUR (German format)
 """
 
 import logging
@@ -22,7 +15,7 @@ from urllib.parse import urlencode
 import requests
 from bs4 import BeautifulSoup
 
-from scanner.card_parser import parse_card_title
+from scanner.card_parser import POKEMON_NAMES, parse_card_title
 from scanner.config import (
     DEFAULT_HEADERS,
     EBAY_REQUEST_DELAY,
@@ -35,50 +28,102 @@ logger = logging.getLogger(__name__)
 
 # eBay search parameters for sold items in Germany
 _EBAY_SOLD_PARAMS = {
-    "LH_Complete": "1",  # Completed listings
-    "LH_Sold": "1",  # Sold items only
-    "LH_PrefLoc": "2",  # EU preferred location
-    "_sop": "13",  # Sort by: End date: recent first
+    "LH_Complete": "1",     # Completed listings
+    "LH_Sold": "1",         # Sold items only
+    "LH_PrefLoc": "2",      # EU preferred location
+    "_sop": "13",            # Sort by: End date: recent first
 }
-
-# Known Pokemon names for search term extraction
-_POKEMON_NAMES = [
-    "Charizard", "Pikachu", "Mewtwo", "Blastoise", "Venusaur", "Eevee",
-    "Umbreon", "Rayquaza", "Lugia", "Ho-Oh", "Gengar", "Dragonite",
-    "Snorlax", "Mew", "Jolteon", "Flareon", "Vaporeon", "Espeon",
-    "Glaceon", "Leafeon", "Sylveon", "Zapdos", "Articuno", "Moltres",
-    "Raichu", "Kangaskhan", "Diancie", "Swablu", "Zekrom", "Reshiram",
-    "Yveltal", "Victini", "Haunter", "Tapu Koko", "Feraligatr",
-    "Scizor", "Tyranitar", "Bulbasaur", "Meowth", "Gyarados",
-    "Hoopa", "Gardevoir", "Ninetales", "Lucario", "Deoxys",
-    "Ditto", "Shuckle", "Inteleon", "Calyrex", "Machoke",
-]
 
 
 def _extract_search_terms(title: str) -> str:
-    """Extract optimal search terms from an NFT title for eBay search.
+    """Extract targeted search terms from an NFT title.
 
-    Instead of searching for the exact long NFT title (which never matches
-    eBay's different formatting), extract: Pokemon name + grading + "Pokemon".
+    Builds a much more specific query than before:
+    pokemon_name + variant + card_number + grading + "Pokemon"
+
+    Example:
+      Input:  "2021 #170 Full Art/Galarian Articuno V PSA 10 Sword & Shield Chilling Reign Pokemon"
+      Output: "Galarian Articuno V PSA 10 170 Chilling Reign Pokemon"
     """
-    # Extract grading info
+    # Parse the title to get structured attributes
+    attrs = parse_card_title(title)
+
+    parts: list[str] = []
+
+    # 1. Pokemon name (most important)
+    if attrs.pokemon_name:
+        parts.append(attrs.pokemon_name)
+    else:
+        # Fallback: try to find any pokemon name in the title
+        title_lower = title.lower()
+        for name in POKEMON_NAMES:
+            if name.lower() in title_lower:
+                parts.append(name)
+                break
+
+    # 2. Variant (V, Vmax, GX, EX, etc.)
+    if attrs.variant:
+        parts.append(attrs.variant)
+
+    # 3. Grading (PSA 10, CGC 9.5, etc.)
     grade_match = re.search(
-        r"\b(PSA|CGC|BGS|Beckett)\s+(\d{1,2}(?:\.\d)?)\b",
+        r"\b(PSA|CGC|BGS|SGC|Beckett)\s+(\d{1,2}(?:\.\d)?)\b",
         title,
         re.IGNORECASE,
     )
-    grading = grade_match.group(0) if grade_match else ""
+    if grade_match:
+        parts.append(grade_match.group(0))
 
-    # Extract Pokemon name
-    pokemon = ""
-    for name in sorted(_POKEMON_NAMES, key=len, reverse=True):
-        if name.lower() in title.lower():
-            pokemon = name
-            break
+    # 4. Card number (stripped of # prefix)
+    if attrs.card_number:
+        num = attrs.card_number.replace("#", "").strip()
+        # Only add if it's informative (not just a single digit)
+        if len(num) >= 2 or "/" in num:
+            parts.append(num)
 
-    # Build search query
-    parts = [p for p in [pokemon, grading, "Pokemon"] if p]
-    return " ".join(parts) if len(parts) > 1 else title[:50]
+    # 5. Set name (if known and not too generic)
+    if attrs.set_name and len(attrs.set_name) > 3:
+        # Use the specific set, not the series
+        # e.g., "Chilling Reign" not "Sword & Shield"
+        set_name = attrs.set_name
+        # Remove series prefix if present
+        series_prefixes = [
+            "Sword & Shield", "Sun & Moon", "Scarlet & Violet",
+            "Black & White", "Diamond & Pearl", "XY",
+        ]
+        for prefix in series_prefixes:
+            if set_name.startswith(prefix) and len(set_name) > len(prefix) + 2:
+                remainder = set_name[len(prefix):].strip()
+                if remainder:
+                    set_name = remainder
+                    break
+        parts.append(set_name)
+
+    # 6. Always include "Pokemon" for relevance
+    parts.append("Pokemon")
+
+    # 7. Language for Japanese cards (important filter)
+    if attrs.language and attrs.language.lower() == "japanese":
+        parts.append("Japanese")
+
+    # Build query - deduplicate
+    seen = set()
+    unique_parts = []
+    for p in parts:
+        p_lower = p.lower()
+        if p_lower not in seen:
+            seen.add(p_lower)
+            unique_parts.append(p)
+
+    query = " ".join(unique_parts)
+
+    # Sanity check: must have at least 2 meaningful parts
+    if len(unique_parts) < 3:
+        # Fallback: use first 60 chars of title
+        query = title[:60].strip()
+
+    logger.debug("Search terms for '%s': '%s'", title[:60], query)
+    return query
 
 
 def build_ebay_search_url(title: str) -> str:
@@ -94,7 +139,8 @@ def build_ebay_search_url(title: str) -> str:
 def search_sold_items(title: str, max_results: int = EBAY_SOLD_SAMPLE_MAX) -> list[EbaySoldItem]:
     """Search eBay.de for sold items matching the card title.
 
-    Uses smart keyword extraction for the search, then parses results.
+    Uses targeted keyword extraction, then parses and filters results.
+    Filters out lots/bundles from results.
     """
     url = build_ebay_search_url(title)
     logger.info("Searching eBay: %s", url)
@@ -105,7 +151,7 @@ def search_sold_items(title: str, max_results: int = EBAY_SOLD_SAMPLE_MAX) -> li
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
-    except requests.exceptions.HTTPError as e:
+    except requests.exceptions.HTTPError:
         if resp.status_code == 429:
             logger.warning("eBay rate limited. Waiting 10 seconds...")
             time.sleep(10)
@@ -116,13 +162,24 @@ def search_sold_items(title: str, max_results: int = EBAY_SOLD_SAMPLE_MAX) -> li
                 logger.error("eBay retry failed for: %s", title)
                 return []
         else:
-            logger.error("eBay HTTP error: %s", e)
+            logger.error("eBay HTTP error for: %s", title)
             return []
     except Exception as e:
         logger.error("eBay request error: %s", e)
         return []
 
-    return _parse_search_results(resp.text, max_results)
+    items = _parse_search_results(resp.text, max_results * 2)  # Over-fetch to allow filtering
+
+    # Post-filter: remove lots/bundles
+    filtered = [item for item in items if not item.attributes.is_lot]
+    if len(filtered) < len(items):
+        logger.debug(
+            "Filtered %d lots/bundles from %d results",
+            len(items) - len(filtered),
+            len(items),
+        )
+
+    return filtered[:max_results]
 
 
 def _parse_search_results(html: str, max_results: int) -> list[EbaySoldItem]:
@@ -171,8 +228,8 @@ def _parse_new_layout_result(item_el) -> EbaySoldItem | None:
         if not title:
             return None
 
-        # Price: find EUR/€ text within the element
-        price_texts = item_el.find_all(string=re.compile(r"EUR|€"))
+        # Price: find EUR/$ text within the element
+        price_texts = item_el.find_all(string=re.compile(r"EUR|€|\$"))
         if not price_texts:
             return None
         price_eur = _parse_eur_price(price_texts[0].strip())
@@ -247,10 +304,10 @@ def _parse_eur_price(price_text: str) -> float | None:
 
     Handles formats like:
     - "EUR 150,00"
-    - "150,00 €"
+    - "150,00 EUR"
     - "EUR 1.500,00"
-    - "150.00 €"
-    - "$45.99" (USD)
+    - "150.00 EUR"
+    - "$45.99"
     """
     cleaned = price_text.replace("EUR", "").replace("€", "").replace("$", "").strip()
 
@@ -260,7 +317,7 @@ def _parse_eur_price(price_text: str) -> float | None:
     elif " to " in cleaned.lower():
         cleaned = cleaned.lower().split(" to ")[0].strip()
 
-    # German format: 1.500,00 → 1500.00
+    # German format: 1.500,00 -> 1500.00
     if "," in cleaned:
         cleaned = cleaned.replace(".", "")
         cleaned = cleaned.replace(",", ".")

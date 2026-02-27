@@ -2,13 +2,10 @@
 
 Fetches listings from the Collector Crypt collection on Magic Eden (Solana).
 - ALWAYS sorts by "Recently Listed" (sort=updatedAt, sort_direction=desc)
-- Never defaults to "Trending" or price sort
-- Paginates correctly (limit=100 per page) to collect up to MAX_NFT_COUNT Pokemon items
-- Uses token.name from the API response (no separate metadata call needed)
+- Paginates correctly (limit=100 per page)
 - Filters for Pokemon cards only (via Category attribute)
-- Extracts exact title, price, and currency (SOL/USDC)
-- Never modifies or trims the title
-- Provides direct Magic Eden links per NFT
+- Extracts structured attributes from ME traits (grading, grade, etc.)
+- Enriches title-parsed data with trait data (more reliable)
 """
 
 import logging
@@ -17,7 +14,7 @@ from urllib.parse import quote
 
 import requests
 
-from scanner.card_parser import parse_card_title
+from scanner.card_parser import extract_from_me_attributes, parse_card_title
 from scanner.config import (
     COLLECTION_SYMBOL,
     DEFAULT_HEADERS,
@@ -44,11 +41,7 @@ def _build_headers() -> dict[str, str]:
 
 
 def _get_listing_url(symbol: str, offset: int, limit: int) -> str:
-    """Build the API URL for fetching listings sorted by 'Recently Listed'.
-
-    CRITICAL: Always uses sort=updatedAt&sort_direction=desc to get
-    recently listed items, NOT default price sort.
-    """
+    """Build the API URL for fetching listings sorted by 'Recently Listed'."""
     return (
         f"{MAGIC_EDEN_API_BASE}/collections/{quote(symbol)}/listings"
         f"?offset={offset}&limit={limit}"
@@ -75,17 +68,13 @@ def fetch_listings(
     ALWAYS sorted by Recently Listed (updatedAt desc).
     Uses limit=100 per page for efficiency.
     Filters to Pokemon cards only via Category attribute.
-
-    Returns:
-        List of NFTListing objects with exact titles, prices, EUR conversions,
-        and direct Magic Eden links.
+    Enriches parsed attributes with structured ME trait data.
     """
     headers = _build_headers()
     all_listings: list[NFTListing] = []
     offset = 0
-    page_size = 100  # API supports up to 100 per page
+    page_size = 100
     empty_pages = 0
-    # Over-fetch since not all cards are Pokemon (~60% are Pokemon based on data)
     max_raw_pages = (max_count * 3) // page_size + 5
 
     logger.info(
@@ -134,7 +123,7 @@ def fetch_listings(
             if listing:
                 all_listings.append(listing)
                 logger.info(
-                    "[%d/%d] %.4f %s (€%.2f) | %s",
+                    "[%d/%d] %.4f %s (EUR%.2f) | %s",
                     len(all_listings), max_count,
                     listing.price, listing.currency.value,
                     listing.price_eur,
@@ -156,25 +145,20 @@ def fetch_listings(
 def _parse_listing(item: dict) -> NFTListing | None:
     """Parse a single listing from the API response.
 
-    The API returns token info directly in item['token'], including:
-    - token.name: exact card title
-    - token.mintAddress: for direct link
-    - token.attributes: Category, Grading Company, Grade, etc.
-
-    Only returns Pokemon cards. Non-Pokemon cards return None.
+    Extracts both title-parsed and trait-based attributes.
+    ME traits override title-parsed values when available.
     """
     try:
         token = item.get("token", {}) or {}
         token_mint = token.get("mintAddress", "") or item.get("tokenMint", "")
 
-        # Get the card name directly from token data
         title = token.get("name", "")
         if not title:
             return None
 
         # Get attributes and check if Pokemon
-        attributes = token.get("attributes", []) or []
-        if not _is_pokemon_card(attributes):
+        me_attributes = token.get("attributes", []) or []
+        if not _is_pokemon_card(me_attributes):
             return None
 
         # Extract price
@@ -195,11 +179,14 @@ def _parse_listing(item: dict) -> NFTListing | None:
         # Convert to EUR using live rates
         price_eur = convert_to_eur(price, currency.value)
 
-        # Direct Magic Eden link to this specific NFT
+        # Direct Magic Eden link
         me_url = f"https://magiceden.us/item-details/{token_mint}"
 
-        # Parse card attributes from the exact title
+        # Parse card attributes from title first
         card_attrs = parse_card_title(title)
+
+        # Enrich with structured ME trait data (overrides title-parsed values)
+        card_attrs = extract_from_me_attributes(me_attributes, card_attrs)
 
         return NFTListing(
             title=title,
@@ -209,6 +196,7 @@ def _parse_listing(item: dict) -> NFTListing | None:
             mint_address=token_mint,
             magic_eden_url=me_url,
             attributes=card_attrs,
+            raw_me_attributes=me_attributes,
         )
     except Exception as e:
         logger.debug("Failed to parse listing: %s", e)

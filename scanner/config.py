@@ -29,15 +29,16 @@ MAGIC_EDEN_PAGE_SIZE = 20
 EBAY_SEARCH_URL = "https://www.ebay.de/sch/i.html"
 EBAY_APP_ID = os.getenv("EBAY_APP_ID", "")
 EBAY_CERT_ID = os.getenv("EBAY_CERT_ID", "")
-# Number of recent sold items to average
-EBAY_SOLD_SAMPLE_MIN = 5
+# Minimum confirmed matches needed for a reliable price average
+EBAY_SOLD_SAMPLE_MIN = 2
+# Maximum eBay results to fetch per search
 EBAY_SOLD_SAMPLE_MAX = 10
 
 # --- Currency ---
 EXCHANGE_RATE_API_KEY = os.getenv("EXCHANGE_RATE_API_KEY", "")
 # CoinGecko free API for SOL price
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price"
-# ExchangeRate-API for USD→EUR
+# ExchangeRate-API for USD->EUR
 EXCHANGERATE_API_URL = "https://open.er-api.com/v6/latest/USD"
 
 # --- Arbitrage ---

@@ -44,9 +44,9 @@ def print_banner() -> None:
     banner = Text()
     banner.append("NFT Arbitrage Scanner", style="bold cyan")
     banner.append("\n")
-    banner.append("Magic Eden (Collector Crypt) → eBay Germany", style="dim")
+    banner.append("Magic Eden (Collector Crypt) -> eBay Germany", style="dim")
     banner.append("\n")
-    banner.append("Pokemon Graded Cards | Strict Matching | Live Prices", style="dim")
+    banner.append("Multi-Signal Matching | Confidence Scoring | Live Prices", style="dim")
     console.print(Panel(banner, border_style="cyan"))
 
 
@@ -59,9 +59,9 @@ def print_rates() -> None:
 
         table = Table(title="Live Exchange Rates", show_header=False)
         table.add_row("SOL/USD", f"${sol_usd:.2f}")
-        table.add_row("USD/EUR", f"€{usd_eur:.4f}")
-        table.add_row("SOL/EUR", f"€{sol_eur:.2f}")
-        table.add_row("USDC/EUR", f"€{usd_eur:.4f}")
+        table.add_row("USD/EUR", f"\u20ac{usd_eur:.4f}")
+        table.add_row("SOL/EUR", f"\u20ac{sol_eur:.2f}")
+        table.add_row("USDC/EUR", f"\u20ac{usd_eur:.4f}")
         console.print(table)
     except Exception as e:
         console.print(f"[red]Error fetching rates: {e}[/red]")
@@ -81,34 +81,55 @@ def print_results(opportunities: list) -> None:
     table = Table(title="Arbitrage Opportunities", show_lines=True)
     table.add_column("#", style="dim", width=4)
     table.add_column("Card Title", style="white", max_width=50)
-    table.add_column("ME Price (EUR)", style="cyan", justify="right")
-    table.add_column("eBay Avg (EUR)", style="green", justify="right")
+    table.add_column("ME Price", style="cyan", justify="right")
+    table.add_column("eBay Avg", style="green", justify="right")
     table.add_column("Profit %", style="bold green", justify="right")
-    table.add_column("eBay Sales", justify="center")
+    table.add_column("Matches", justify="center")
+    table.add_column("Confidence", justify="center")
 
     for i, opp in enumerate(opportunities, 1):
         profit_style = "bold green" if opp.profit_percent >= 50 else "green"
+        conf_pct = opp.match_confidence * 100
+        conf_style = "bold green" if conf_pct >= 90 else "yellow" if conf_pct >= 80 else "red"
         table.add_row(
             str(i),
             opp.nft.title[:50],
-            f"€{opp.nft.price_eur:.2f}",
-            f"€{opp.ebay_avg_price_eur:.2f}",
+            f"\u20ac{opp.nft.price_eur:.2f}",
+            f"\u20ac{opp.ebay_avg_price_eur:.2f}",
             Text(f"+{opp.profit_percent:.1f}%", style=profit_style),
             str(opp.ebay_sold_count),
+            Text(f"{conf_pct:.0f}%", style=conf_style),
         )
 
     console.print(table)
 
-    # Print detailed links
-    console.print("\n[bold]Detailed Links:[/bold]")
+    # Print detailed links and match evidence
+    console.print("\n[bold]Detailed Links & Match Evidence:[/bold]")
     for i, opp in enumerate(opportunities, 1):
         console.print(f"\n[cyan]#{i}[/cyan] {opp.nft.title}")
         console.print(f"  Magic Eden: {opp.nft.magic_eden_url}")
         console.print(f"  eBay Search: {opp.ebay_search_url}")
+        console.print(f"  Confidence: {opp.match_confidence:.0%}")
+
+        # Show parsed NFT attributes
+        attrs = opp.nft.attributes
+        console.print(
+            f"  NFT Parsed: pokemon={attrs.pokemon_name} variant={attrs.variant} "
+            f"number={attrs.card_number} set={attrs.set_name} "
+            f"grade={attrs.grading_company.value} {attrs.grade} lang={attrs.language}"
+        )
+
+        # Show top match evidence
+        if opp.scored_matches:
+            best = opp.scored_matches[0]
+            console.print(f"  Best eBay match: '{best.ebay_item.title[:60]}'")
+            for ev in best.match_result.evidence:
+                score_str = f"{ev.score:.1f}"
+                console.print(f"    {ev.field_name}: {score_str} | {ev.reason}")
 
 
 def save_results(opportunities: list, output_path: Path | None = None) -> Path:
-    """Save results to JSON file."""
+    """Save results to JSON file with full match evidence."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     if output_path is None:
         output_path = RESULTS_DIR / f"scan_{timestamp}.json"
@@ -128,8 +149,24 @@ def save_results(opportunities: list, output_path: Path | None = None) -> Path:
                 "ebay_avg_price_eur": round(opp.ebay_avg_price_eur, 2),
                 "ebay_sold_count": opp.ebay_sold_count,
                 "profit_percent": round(opp.profit_percent, 1),
+                "match_confidence": round(opp.match_confidence, 3),
                 "magic_eden_url": opp.nft.magic_eden_url,
                 "ebay_search_url": opp.ebay_search_url,
+                "nft_attributes": {
+                    "pokemon_name": opp.nft.attributes.pokemon_name,
+                    "variant": opp.nft.attributes.variant,
+                    "card_number": opp.nft.attributes.card_number,
+                    "set_name": opp.nft.attributes.set_name,
+                    "grading_company": opp.nft.attributes.grading_company.value,
+                    "grade": opp.nft.attributes.grade,
+                    "language": opp.nft.attributes.language,
+                    "foil_type": opp.nft.attributes.foil_type,
+                    "edition": opp.nft.attributes.edition,
+                },
+                "match_evidence": [
+                    sm.match_result.to_dict()
+                    for sm in opp.scored_matches[:3]  # Top 3 matches
+                ],
             }
             for opp in opportunities
         ],
@@ -154,12 +191,16 @@ def run_scan(count: int, threshold: float) -> list:
 
     console.print(f"[green]Fetched {len(listings)} listings.[/green]")
 
-    # Show sample of listings
-    console.print("\n[bold]Sample listings:[/bold]")
+    # Show sample of listings with parsed attributes
+    console.print("\n[bold]Sample listings (with parsed attributes):[/bold]")
     for listing in listings[:5]:
+        attrs = listing.attributes
         console.print(
-            f"  - {listing.title} | {listing.price} {listing.currency.value} "
-            f"(€{listing.price_eur:.2f})"
+            f"  - {listing.title[:60]}\n"
+            f"    {listing.price} {listing.currency.value} "
+            f"(\u20ac{listing.price_eur:.2f}) | "
+            f"pokemon={attrs.pokemon_name} variant={attrs.variant} "
+            f"num={attrs.card_number} set={attrs.set_name}"
         )
     if len(listings) > 5:
         console.print(f"  ... and {len(listings) - 5} more")
