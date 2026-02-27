@@ -142,6 +142,17 @@ def fetch_listings(
     return all_listings
 
 
+def _extract_insured_value(attributes: list[dict]) -> float:
+    """Extract the 'Insured Value' from ME traits (in USD)."""
+    for attr in attributes:
+        if str(attr.get("trait_type", "")).lower() == "insured value":
+            try:
+                return float(attr.get("value", 0))
+            except (ValueError, TypeError):
+                return 0.0
+    return 0.0
+
+
 def _parse_listing(item: dict) -> NFTListing | None:
     """Parse a single listing from the API response.
 
@@ -188,6 +199,9 @@ def _parse_listing(item: dict) -> NFTListing | None:
         # Enrich with structured ME trait data (overrides title-parsed values)
         card_attrs = extract_from_me_attributes(me_attributes, card_attrs)
 
+        # Extract insured value from ME traits
+        insured_value_usd = _extract_insured_value(me_attributes)
+
         return NFTListing(
             title=title,
             price=price,
@@ -197,6 +211,7 @@ def _parse_listing(item: dict) -> NFTListing | None:
             magic_eden_url=me_url,
             attributes=card_attrs,
             raw_me_attributes=me_attributes,
+            insured_value_usd=insured_value_usd,
         )
     except Exception as e:
         logger.debug("Failed to parse listing: %s", e)

@@ -82,6 +82,7 @@ def print_results(opportunities: list) -> None:
     table.add_column("#", style="dim", width=4)
     table.add_column("Card Title", style="white", max_width=50)
     table.add_column("ME Price", style="cyan", justify="right")
+    table.add_column("Ins. Val", style="dim cyan", justify="right")
     table.add_column("eBay Avg", style="green", justify="right")
     table.add_column("Profit %", style="bold green", justify="right")
     table.add_column("Matches", justify="center")
@@ -91,10 +92,12 @@ def print_results(opportunities: list) -> None:
         profit_style = "bold green" if opp.profit_percent >= 50 else "green"
         conf_pct = opp.match_confidence * 100
         conf_style = "bold green" if conf_pct >= 90 else "yellow" if conf_pct >= 80 else "red"
+        iv_str = f"${opp.nft.insured_value_usd:.0f}" if opp.nft.insured_value_usd > 0 else "-"
         table.add_row(
             str(i),
             opp.nft.title[:50],
             f"\u20ac{opp.nft.price_eur:.2f}",
+            iv_str,
             f"\u20ac{opp.ebay_avg_price_eur:.2f}",
             Text(f"+{opp.profit_percent:.1f}%", style=profit_style),
             str(opp.ebay_sold_count),
@@ -146,6 +149,8 @@ def save_results(opportunities: list, output_path: Path | None = None) -> Path:
                 "magic_eden_price_eur": round(opp.nft.price_eur, 2),
                 "magic_eden_price_original": opp.nft.price,
                 "magic_eden_currency": opp.nft.currency.value,
+                "insured_value_usd": opp.nft.insured_value_usd,
+                "insured_value_ratio": round(opp.insured_value_ratio, 2),
                 "ebay_avg_price_eur": round(opp.ebay_avg_price_eur, 2),
                 "ebay_sold_count": opp.ebay_sold_count,
                 "profit_percent": round(opp.profit_percent, 1),
@@ -195,10 +200,11 @@ def run_scan(count: int, threshold: float) -> list:
     console.print("\n[bold]Sample listings (with parsed attributes):[/bold]")
     for listing in listings[:5]:
         attrs = listing.attributes
+        iv_str = f" | IV=${listing.insured_value_usd:.0f}" if listing.insured_value_usd > 0 else ""
         console.print(
             f"  - {listing.title[:60]}\n"
             f"    {listing.price} {listing.currency.value} "
-            f"(\u20ac{listing.price_eur:.2f}) | "
+            f"(\u20ac{listing.price_eur:.2f}){iv_str} | "
             f"pokemon={attrs.pokemon_name} variant={attrs.variant} "
             f"num={attrs.card_number} set={attrs.set_name}"
         )

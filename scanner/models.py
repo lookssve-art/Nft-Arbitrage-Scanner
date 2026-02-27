@@ -129,6 +129,7 @@ class NFTListing:
     magic_eden_url: str = ""
     attributes: CardAttributes = field(default_factory=CardAttributes)
     raw_me_attributes: list[dict] = field(default_factory=list)
+    insured_value_usd: float = 0.0  # From ME "Insured Value" trait (in USD)
 
 
 @dataclass
@@ -162,6 +163,7 @@ class ArbitrageOpportunity:
     ebay_matches: list[EbaySoldItem] = field(default_factory=list)
     match_confidence: float = 0.0
     scored_matches: list[ScoredEbayMatch] = field(default_factory=list)
+    insured_value_ratio: float = 0.0  # insured_value / me_price (>1.2 = good signal)
 
     def __str__(self) -> str:
         return (

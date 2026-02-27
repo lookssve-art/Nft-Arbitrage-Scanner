@@ -123,8 +123,26 @@ def analyze_single_nft(nft: NFTListing) -> ArbitrageOpportunity | None:
     return opportunity
 
 
+def _insured_value_ratio(nft: NFTListing) -> float:
+    """Calculate ratio of insured value to ME listing price (in USD).
+
+    A ratio > 1.2 signals the card may be underpriced on ME.
+    """
+    if nft.insured_value_usd <= 0:
+        return 0.0
+    # Approximate ME price in USD from SOL
+    me_price_usd = nft.price * 81.0  # Rough SOL/USD for sorting only
+    if me_price_usd <= 0:
+        return 0.0
+    return nft.insured_value_usd / me_price_usd
+
+
 def scan_for_arbitrage(listings: list[NFTListing]) -> list[ArbitrageOpportunity]:
     """Scan all NFT listings for arbitrage opportunities.
+
+    Prioritizes listings where insured_value / ME_price ratio is highest
+    (most likely to be profitable). This avoids wasting eBay queries on
+    cards that are overpriced on ME.
 
     Args:
         listings: List of NFT listings from Magic Eden.
@@ -134,19 +152,35 @@ def scan_for_arbitrage(listings: list[NFTListing]) -> list[ArbitrageOpportunity]
     """
     opportunities: list[ArbitrageOpportunity] = []
 
-    logger.info("Scanning %d listings for arbitrage...", len(listings))
+    # Sort by insured value ratio descending to check most promising first
+    sorted_listings = sorted(
+        listings,
+        key=lambda nft: _insured_value_ratio(nft),
+        reverse=True,
+    )
 
-    for i, nft in enumerate(listings, 1):
-        logger.info("[%d/%d] Analyzing: %s", i, len(listings), nft.title[:60])
+    logger.info(
+        "Scanning %d listings for arbitrage (sorted by insured value ratio)...",
+        len(sorted_listings),
+    )
+
+    for i, nft in enumerate(sorted_listings, 1):
+        ratio = _insured_value_ratio(nft)
+        logger.info(
+            "[%d/%d] IV ratio=%.2f | Analyzing: %s",
+            i, len(sorted_listings), ratio, nft.title[:60],
+        )
 
         result = analyze_single_nft(nft)
         if result:
+            result.insured_value_ratio = ratio
             opportunities.append(result)
             logger.info(
-                ">>> OPPORTUNITY #%d: +%.1f%% (confidence: %.0f%%) on '%s'",
+                ">>> OPPORTUNITY #%d: +%.1f%% (confidence: %.0f%%, IV ratio: %.2f) on '%s'",
                 len(opportunities),
                 result.profit_percent,
                 result.match_confidence * 100,
+                ratio,
                 nft.title[:50],
             )
 
