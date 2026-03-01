@@ -611,11 +611,15 @@ def extract_from_me_attributes(
     ME traits are more reliable than title parsing. If a trait provides
     a value, it overrides the title-parsed value.
 
-    Common ME traits:
+    Common ME/Phygitals traits:
     - "Category": "Pokemon"
-    - "Grading Company": "PSA"
-    - "Grade": "10"
+    - "Grading Company": "PSA"  (ME) or parsed from "Grade" (Phygitals)
+    - "Grade": "10"  (ME) or "PSA 9.0" / "CGC 10.0" / "Ungraded" (Phygitals)
     - "Year": "2021"
+    - "Name": "Pikachu"  (Phygitals: pokemon name)
+    - "Card Id": "sv3pt5-21"  (Phygitals: set-number format)
+    - "Number": "149"  (Phygitals: card number)
+    - "Foil Type": "Normal" / "Holo"  (Phygitals)
     """
     for attr in me_attrs:
         trait = str(attr.get("trait_type", "")).strip()
@@ -632,10 +636,29 @@ def extract_from_me_attributes(
                     break
 
         elif trait_lower == "grade":
-            try:
-                title_attrs.grade = float(value)
-            except ValueError:
-                pass
+            # Phygitals format: "PSA 9.0", "CGC 10.0", "Ungraded"
+            # ME format: just "10" or "9.5"
+            if value.lower() == "ungraded":
+                title_attrs.grading_company = GradingCompany.UNKNOWN
+                title_attrs.grade = None
+            else:
+                # Try to extract grading company + grade from combined string
+                for pattern, company in _GRADING_PATTERNS:
+                    if pattern.search(value):
+                        title_attrs.grading_company = company
+                        break
+                grade_match = _GRADE_PATTERN.search(value)
+                if grade_match:
+                    try:
+                        title_attrs.grade = float(grade_match.group(1))
+                    except ValueError:
+                        pass
+                else:
+                    # Plain numeric grade (ME format)
+                    try:
+                        title_attrs.grade = float(value)
+                    except ValueError:
+                        pass
 
         elif trait_lower == "year":
             title_attrs.year = value
@@ -646,11 +669,38 @@ def extract_from_me_attributes(
         elif trait_lower in ("set", "set name"):
             title_attrs.set_name = value
 
-        elif trait_lower == "card number":
-            title_attrs.card_number = value
+        elif trait_lower in ("card number", "card id"):
+            # Phygitals Card Id format: "sv3pt5-21" -> take number after dash
+            if "-" in value and not title_attrs.card_number:
+                title_attrs.card_number = value.split("-")[-1]
+            elif not title_attrs.card_number:
+                title_attrs.card_number = value
+
+        elif trait_lower == "number":
+            # Phygitals "Number" trait: "149"
+            if not title_attrs.card_number:
+                title_attrs.card_number = value
 
         elif trait_lower == "edition":
             title_attrs.edition = value
+
+        elif trait_lower == "name":
+            # Phygitals "Name" trait: the Pokemon name
+            if not title_attrs.pokemon_name:
+                title_attrs.pokemon_name = value
+
+        elif trait_lower == "foil type":
+            if value.lower() != "normal" and not title_attrs.foil_type:
+                title_attrs.foil_type = value
+
+        elif trait_lower == "rarity":
+            # Map rarity to foil type if relevant
+            rarity_lower = value.lower()
+            if not title_attrs.foil_type and rarity_lower in (
+                "illustration rare", "special art rare", "art rare",
+                "secret rare", "hyper rare", "ultra rare",
+            ):
+                title_attrs.foil_type = value
 
     return title_attrs
 

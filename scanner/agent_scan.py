@@ -19,6 +19,7 @@ from scanner.arbitrage import scan_for_arbitrage
 from scanner.config import COLLECTION_SYMBOL, MAX_NFT_COUNT
 from scanner.currency import get_sol_price_usd, get_usd_to_eur_rate
 from scanner.magic_eden import fetch_listings
+from scanner.phygitals import fetch_phygitals_listings
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -35,8 +36,10 @@ def run_agent_scan(count: int = MAX_NFT_COUNT, threshold: float = 20.0) -> dict:
     sol_usd = get_sol_price_usd()
     usd_eur = get_usd_to_eur_rate()
 
-    # Fetch listings
-    listings = fetch_listings(symbol=COLLECTION_SYMBOL, max_count=count)
+    # Fetch listings from both sources
+    cc_listings = fetch_listings(symbol=COLLECTION_SYMBOL, max_count=count)
+    pg_listings = fetch_phygitals_listings(max_count=count)
+    listings = (cc_listings or []) + (pg_listings or [])
     if not listings:
         return {
             "status": "error",
@@ -65,7 +68,7 @@ def run_agent_scan(count: int = MAX_NFT_COUNT, threshold: float = 20.0) -> dict:
             "versicherungswert_usd": round(opp.nft.insured_value_usd, 0),
             "match_konfidenz": round(opp.match_confidence * 100, 0),
             "ebay_verkauft": opp.ebay_sold_count,
-            "buy_plattform": "Magic Eden (Collector Crypt)",
+            "buy_plattform": opp.nft.source,
             "sell_plattform": "eBay.de",
             "magic_eden_link": opp.nft.magic_eden_url,
             "ebay_suche_link": opp.ebay_search_url,

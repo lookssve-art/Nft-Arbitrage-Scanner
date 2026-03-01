@@ -27,6 +27,7 @@ from scanner.config import (
 )
 from scanner.currency import get_sol_price_usd, get_usd_to_eur_rate
 from scanner.magic_eden import fetch_listings
+from scanner.phygitals import fetch_phygitals_listings
 
 console = Console()
 
@@ -44,7 +45,7 @@ def print_banner() -> None:
     banner = Text()
     banner.append("NFT Arbitrage Scanner", style="bold cyan")
     banner.append("\n")
-    banner.append("Magic Eden (Collector Crypt) -> eBay Germany", style="dim")
+    banner.append("Collector Crypt + Phygitals -> eBay Germany", style="dim")
     banner.append("\n")
     banner.append("Multi-Signal Matching | Confidence Scoring | Live Prices", style="dim")
     console.print(Panel(banner, border_style="cyan"))
@@ -80,9 +81,10 @@ def print_results(opportunities: list) -> None:
 
     table = Table(title="Arbitrage Opportunities", show_lines=True)
     table.add_column("#", style="dim", width=4)
-    table.add_column("Card Title", style="white", max_width=50)
-    table.add_column("ME Price", style="cyan", justify="right")
-    table.add_column("Ins. Val", style="dim cyan", justify="right")
+    table.add_column("Card Title", style="white", max_width=45)
+    table.add_column("Source", style="dim", width=10)
+    table.add_column("Buy Price", style="cyan", justify="right")
+    table.add_column("FMV", style="dim cyan", justify="right")
     table.add_column("eBay Avg", style="green", justify="right")
     table.add_column("Profit %", style="bold green", justify="right")
     table.add_column("Matches", justify="center")
@@ -93,9 +95,12 @@ def print_results(opportunities: list) -> None:
         conf_pct = opp.match_confidence * 100
         conf_style = "bold green" if conf_pct >= 90 else "yellow" if conf_pct >= 80 else "red"
         iv_str = f"${opp.nft.insured_value_usd:.0f}" if opp.nft.insured_value_usd > 0 else "-"
+        source = opp.nft.source.split("/")[0] if "/" in opp.nft.source else opp.nft.source
+        source_short = {"collector_crypt": "CC", "phygitals": "PG"}.get(source, source[:6])
         table.add_row(
             str(i),
-            opp.nft.title[:50],
+            opp.nft.title[:45],
+            source_short,
             f"\u20ac{opp.nft.price_eur:.2f}",
             iv_str,
             f"\u20ac{opp.ebay_avg_price_eur:.2f}",
@@ -149,6 +154,7 @@ def save_results(opportunities: list, output_path: Path | None = None) -> Path:
                 "magic_eden_price_eur": round(opp.nft.price_eur, 2),
                 "magic_eden_price_original": opp.nft.price,
                 "magic_eden_currency": opp.nft.currency.value,
+                "source": opp.nft.source,
                 "insured_value_usd": opp.nft.insured_value_usd,
                 "insured_value_ratio": round(opp.insured_value_ratio, 2),
                 "ebay_avg_price_eur": round(opp.ebay_avg_price_eur, 2),
@@ -185,16 +191,29 @@ def save_results(opportunities: list, output_path: Path | None = None) -> Path:
 
 
 def run_scan(count: int, threshold: float) -> list:
-    """Execute a single scan cycle."""
-    # Fetch listings from Magic Eden
-    console.print(f"\n[bold]Fetching {count} listings from Magic Eden...[/bold]")
-    listings = fetch_listings(symbol=COLLECTION_SYMBOL, max_count=count)
+    """Execute a single scan cycle (Collector Crypt + Phygitals)."""
+    all_listings = []
 
+    # Fetch from Collector Crypt (Magic Eden)
+    console.print(f"\n[bold]Fetching {count} listings from Collector Crypt...[/bold]")
+    cc_listings = fetch_listings(symbol=COLLECTION_SYMBOL, max_count=count)
+    if cc_listings:
+        console.print(f"[green]Collector Crypt: {len(cc_listings)} listings.[/green]")
+        all_listings.extend(cc_listings)
+
+    # Fetch from Phygitals
+    console.print(f"[bold]Fetching {count} listings from Phygitals...[/bold]")
+    pg_listings = fetch_phygitals_listings(max_count=count)
+    if pg_listings:
+        console.print(f"[green]Phygitals: {len(pg_listings)} listings.[/green]")
+        all_listings.extend(pg_listings)
+
+    listings = all_listings
     if not listings:
         console.print("[red]No listings found. Check your connection or API key.[/red]")
         return []
 
-    console.print(f"[green]Fetched {len(listings)} listings.[/green]")
+    console.print(f"[green]Total: {len(listings)} listings.[/green]")
 
     # Show sample of listings with parsed attributes
     console.print("\n[bold]Sample listings (with parsed attributes):[/bold]")

@@ -129,7 +129,8 @@ class NFTListing:
     magic_eden_url: str = ""
     attributes: CardAttributes = field(default_factory=CardAttributes)
     raw_me_attributes: list[dict] = field(default_factory=list)
-    insured_value_usd: float = 0.0  # From ME "Insured Value" trait (in USD)
+    insured_value_usd: float = 0.0  # From ME "Insured Value" or Phygitals FMV (USD)
+    source: str = "collector_crypt"  # "collector_crypt" or "phygitals/{vault}"
 
 
 @dataclass
