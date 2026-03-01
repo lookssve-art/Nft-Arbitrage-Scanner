@@ -5,6 +5,8 @@ import pytest
 from scanner.models import CardAttributes, Currency, GradingCompany, NFTListing
 from scanner.pricecharting import (
     _build_search_query,
+    _card_numbers_match,
+    _extract_pc_number,
     _grade_price_usd,
     _match_score,
     _normalize_for_match,
@@ -44,6 +46,56 @@ def test_normalize_strips_special():
 
 def test_normalize_lowercase():
     assert _normalize_for_match("PSA 10") == "psa10"
+
+
+# --- _extract_pc_number ---
+
+
+def test_extract_pc_number_standard():
+    assert _extract_pc_number("Charizard ex #125") == "125"
+
+
+def test_extract_pc_number_prefixed():
+    assert _extract_pc_number("Blastoise EX #XY122") == "XY122"
+
+
+def test_extract_pc_number_leading_zeros():
+    assert _extract_pc_number("Mew ex #003") == "3"
+
+
+def test_extract_pc_number_no_number():
+    assert _extract_pc_number("Charizard ex") == ""
+
+
+# --- _card_numbers_match ---
+
+
+def test_card_numbers_match_exact():
+    assert _card_numbers_match("125", "125") is True
+
+
+def test_card_numbers_match_hash():
+    assert _card_numbers_match("#125", "125") is True
+
+
+def test_card_numbers_match_leading_zeros():
+    assert _card_numbers_match("003", "3") is True
+
+
+def test_card_numbers_match_slash():
+    assert _card_numbers_match("170/198", "170") is True
+
+
+def test_card_numbers_mismatch():
+    assert _card_numbers_match("060", "161") is False
+
+
+def test_card_numbers_mismatch_different():
+    assert _card_numbers_match("041", "156") is False
+
+
+def test_card_numbers_empty():
+    assert _card_numbers_match("", "125") is False
 
 
 # --- _build_search_query ---
@@ -130,16 +182,49 @@ def test_match_score_perfect():
     assert score >= 0.9
 
 
-def test_match_score_partial_match():
-    """Pokemon + variant substring match but number/set mismatch = medium score."""
+def test_match_score_number_mismatch_rejects():
+    """CRITICAL: Different card numbers MUST reject the match (score=0)."""
+    nft = _make_nft(pokemon="Umbreon", variant="EX", number="060", set_name="Prismatic Evolutions")
+    product = {
+        "productName": "Umbreon ex #161",  # Alternate art — different card!
+        "consoleName": "Pokemon Prismatic Evolutions",
+    }
+    score = _match_score(nft, product)
+    assert score == 0.0
+
+
+def test_match_score_number_mismatch_rejects_sylveon():
+    """Sylveon #041 must NOT match Sylveon #156."""
+    nft = _make_nft(pokemon="Sylveon", variant="EX", number="041", set_name="Prismatic Evolutions")
+    product = {
+        "productName": "Sylveon ex #156",
+        "consoleName": "Pokemon Prismatic Evolutions",
+    }
+    score = _match_score(nft, product)
+    assert score == 0.0
+
+
+def test_match_score_number_match_scores_high():
+    """Same card number should score highly."""
+    nft = _make_nft(pokemon="Umbreon", variant="EX", number="060", set_name="Prismatic Evolutions")
+    product = {
+        "productName": "Umbreon ex #60",
+        "consoleName": "Pokemon Prismatic Evolutions",
+    }
+    score = _match_score(nft, product)
+    assert score >= 0.8
+
+
+def test_match_score_partial_match_no_pc_number():
+    """Pokemon matches but PC product has no number → low score."""
     nft = _make_nft(pokemon="Charizard", variant="V", number="999", set_name="Other Set")
     product = {
-        "productName": "Charizard VMAX #200",
+        "productName": "Charizard VMAX",
         "consoleName": "Pokemon Different Set",
     }
     score = _match_score(nft, product)
-    # Charizard matches (0.35) + V is found in VMAX (0.20) = 0.55
-    assert 0.4 <= score <= 0.7
+    # Can't verify number → reduced score
+    assert 0.2 <= score <= 0.6
 
 
 def test_match_score_no_match():
@@ -149,7 +234,7 @@ def test_match_score_no_match():
         "consoleName": "Pokemon Obsidian Flames",
     }
     score = _match_score(nft, product)
-    assert score < 0.3
+    assert score == 0.0  # Number mismatch → rejected
 
 
 def test_match_score_few_attrs():
@@ -162,6 +247,19 @@ def test_match_score_few_attrs():
     score = _match_score(nft, product)
     # Should be reduced due to few attributes
     assert score < 0.5
+
+
+def test_match_score_variant_v_not_in_vmax():
+    """Short variant 'V' should NOT match inside 'VMAX' (word-boundary check)."""
+    nft = _make_nft(pokemon="Charizard", variant="V", number="25", set_name="Some Set")
+    product = {
+        "productName": "Charizard VMAX #25",
+        "consoleName": "Pokemon Some Set",
+    }
+    score = _match_score(nft, product)
+    # Number matches, pokemon matches, but variant V ≠ VMAX
+    # Score should be decent but not perfect (missing variant match)
+    assert 0.5 <= score <= 0.85
 
 
 # --- _grade_price_usd ---

@@ -159,16 +159,82 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
+# Pattern to extract card number from PriceCharting product names like
+# "Charizard ex #125", "Umbreon VMAX #95", "Blastoise EX #XY122"
+_PC_CARD_NUMBER_RE = re.compile(r"#(\w+)\s*$")
+
+
+def _extract_pc_number(product_name: str) -> str:
+    """Extract the card number from a PriceCharting product name.
+
+    Examples:
+        "Charizard ex #125" -> "125"
+        "Umbreon VMAX #95"  -> "95"
+        "Blastoise EX #XY122" -> "XY122"
+    """
+    m = _PC_CARD_NUMBER_RE.search(product_name)
+    if m:
+        return m.group(1).lstrip("0")
+    return ""
+
+
+def _normalize_card_number(num: str) -> str:
+    """Normalize a card number for comparison.
+
+    Strips '#', leading zeros, and lowercases for prefix comparison.
+    """
+    cleaned = num.replace("#", "").strip().lstrip("0")
+    return cleaned.lower() if cleaned else ""
+
+
+def _card_numbers_match(nft_num: str, pc_num: str) -> bool:
+    """Check if NFT card number matches PriceCharting card number.
+
+    Handles: exact match, slash format ("170/198" matches "170"),
+    and prefix format ("sv60" matches "sv60").
+    """
+    nft_n = _normalize_card_number(nft_num)
+    pc_n = _normalize_card_number(pc_num)
+
+    if not nft_n or not pc_n:
+        return False
+
+    # Exact match
+    if nft_n == pc_n:
+        return True
+
+    # Slash format: "170/198" -> "170"
+    if "/" in nft_n:
+        nft_n = nft_n.split("/")[0].lstrip("0")
+        if nft_n == pc_n:
+            return True
+
+    return False
+
+
 def _match_score(nft: NFTListing, product: dict) -> float:
     """Score how well a PriceCharting product matches an NFT.
 
     Returns 0.0–1.0 based on matching pokemon name, card number, variant, set.
+
+    CRITICAL: Card number is mandatory. If the NFT has a card number and the
+    PriceCharting product has a different number, the match is rejected (score=0).
+    This prevents matching standard cards to expensive alternate art versions.
     """
     attrs = nft.attributes
     product_name = product.get("productName", "")
     set_name = product.get("consoleName", "")
     product_name_norm = _normalize_for_match(product_name)
     set_name_norm = _normalize_for_match(set_name)
+
+    # --- GATE: Card number must match (mandatory) ---
+    nft_num = (attrs.card_number or "").replace("#", "").strip()
+    pc_num = _extract_pc_number(product_name)
+
+    if nft_num and pc_num:
+        if not _card_numbers_match(nft_num, pc_num):
+            # Numbers present on both sides but don't match → reject
+            return 0.0
 
     score = 0.0
     checks = 0
@@ -180,27 +246,36 @@ def _match_score(nft: NFTListing, product: dict) -> float:
             score += 0.35
         checks += 1
 
-    # Card number match (weight: 0.25)
-    if attrs.card_number:
-        num = attrs.card_number.replace("#", "").strip()
-        num_norm = _normalize_for_match(num)
-        # Check if the number appears in the product name (e.g., "#125" in "Charizard ex #125")
-        if num_norm and num_norm in product_name_norm:
-            score += 0.25
+    # Card number match (weight: 0.30) — boosted since it's now critical
+    if nft_num:
+        if pc_num and _card_numbers_match(nft_num, pc_num):
+            score += 0.30
+        elif not pc_num:
+            # PC product has no number — can't verify, small score
+            score += 0.05
         checks += 1
 
     # Variant match (weight: 0.20)
     if attrs.variant:
         variant_norm = _normalize_for_match(attrs.variant)
-        if variant_norm in product_name_norm:
-            score += 0.20
+        # Use word-boundary matching to avoid "V" matching inside "VMAX"
+        if len(variant_norm) >= 3:
+            if variant_norm in product_name_norm:
+                score += 0.20
+        else:
+            # Short variants (V, EX, ex): need stricter matching
+            variant_pattern = re.compile(
+                r"\b" + re.escape(attrs.variant) + r"\b", re.IGNORECASE
+            )
+            if variant_pattern.search(product_name):
+                score += 0.20
         checks += 1
 
-    # Set name match (weight: 0.20)
+    # Set name match (weight: 0.15)
     if attrs.set_name:
         set_norm = _normalize_for_match(attrs.set_name)
         if set_norm in set_name_norm or set_norm in product_name_norm:
-            score += 0.20
+            score += 0.15
         checks += 1
 
     # If we had very few attributes to match on, reduce confidence
@@ -280,7 +355,7 @@ def lookup_nft_price(nft: NFTListing) -> dict | None:
             best_score = score
             best_product = product
 
-    if best_product is None or best_score < 0.30:
+    if best_product is None or best_score < 0.50:
         logger.debug(
             "No confident PriceCharting match for '%s' (best score: %.2f)",
             nft.title[:50], best_score,
