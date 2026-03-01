@@ -1,15 +1,17 @@
 """Arbitrage detection engine with confidence scoring.
 
-Compares Magic Eden NFT prices against eBay sold item averages.
-Uses the multi-signal matching engine for reliable 1:1 card identification.
+Two-stage price verification:
+1. PriceCharting (primary) — fast, reliable aggregated eBay sold prices
+2. eBay scraping (fallback) — direct sold-item search with multi-signal matching
 
 Output includes:
 - Card title and parsed attributes
-- Magic Eden price (EUR)
-- eBay average sold price from confirmed matches
+- Magic Eden / Phygitals buy price (EUR)
+- PriceCharting market price (grade-matched)
+- eBay average sold price from confirmed matches (when available)
 - Profit percentage
 - Match confidence score and evidence
-- Direct links (Magic Eden + eBay search)
+- Direct links (Magic Eden + eBay search + PriceCharting)
 """
 
 import logging
@@ -19,7 +21,10 @@ from scanner.config import (
     EBAY_REQUEST_DELAY,
     EBAY_SOLD_SAMPLE_MIN,
     MIN_PROFIT_PERCENT,
+    PRICECHARTING_ENABLED,
+    REQUEST_DELAY,
 )
+from scanner.currency import get_usd_to_eur_rate
 from scanner.ebay import build_ebay_search_url, search_sold_items
 from scanner.matcher import find_scored_matches
 from scanner.models import (
@@ -28,6 +33,7 @@ from scanner.models import (
     NFTListing,
     ScoredEbayMatch,
 )
+from scanner.pricecharting import lookup_nft_price
 
 logger = logging.getLogger(__name__)
 
@@ -39,30 +45,73 @@ def calculate_profit_percent(buy_price: float, sell_price: float) -> float:
     return ((sell_price - buy_price) / buy_price) * 100.0
 
 
-def analyze_single_nft(nft: NFTListing) -> ArbitrageOpportunity | None:
-    """Analyze a single NFT for arbitrage potential.
+def _analyze_with_pricecharting(nft: NFTListing) -> ArbitrageOpportunity | None:
+    """Try to find arbitrage using PriceCharting market prices.
+
+    Returns an opportunity if PriceCharting has a confident match with
+    a profitable grade-matched price.
+    """
+    pc_data = lookup_nft_price(nft)
+    if not pc_data:
+        return None
+
+    matched_price_usd = pc_data["matched_price_usd"]
+    if matched_price_usd <= 0:
+        logger.debug("PriceCharting matched but no price for grade: %s", nft.title[:50])
+        return None
+
+    # Convert PriceCharting USD price to EUR
+    usd_eur = get_usd_to_eur_rate()
+    matched_price_eur = matched_price_usd * usd_eur
+
+    # Calculate profit
+    profit_pct = calculate_profit_percent(nft.price_eur, matched_price_eur)
+
+    if profit_pct < MIN_PROFIT_PERCENT:
+        logger.debug(
+            "PC profit %.1f%% below threshold for: %s",
+            profit_pct, nft.title[:50],
+        )
+        return None
+
+    ebay_url = build_ebay_search_url(nft.title)
+
+    opportunity = ArbitrageOpportunity(
+        nft=nft,
+        ebay_avg_price_eur=matched_price_eur,
+        ebay_sold_count=0,  # No individual eBay matches
+        profit_percent=profit_pct,
+        ebay_search_url=ebay_url,
+        match_confidence=pc_data["match_score"],
+        pc_matched_price_usd=matched_price_usd,
+        pc_product_name=pc_data["product_name"],
+        pc_url=pc_data["url"],
+        pc_match_score=pc_data["match_score"],
+    )
+
+    logger.info(
+        "PC ARBITRAGE: +%.1f%% | %s -> %s ($%.2f)",
+        profit_pct, nft.title[:40],
+        pc_data["product_name"], matched_price_usd,
+    )
+    return opportunity
+
+
+def _analyze_with_ebay(nft: NFTListing) -> ArbitrageOpportunity | None:
+    """Analyze a single NFT using eBay sold items scraping.
 
     1. Search eBay for sold items
     2. Score each result with multi-signal matcher
     3. Only use AUTO_MATCH results (confidence >= 0.85)
     4. Calculate average sold price from confirmed matches
     5. Flag if profit >= MIN_PROFIT_PERCENT
-
-    Returns:
-        ArbitrageOpportunity if found, None otherwise.
     """
-    if nft.price_eur <= 0:
-        logger.debug("Skipping NFT with zero EUR price: %s", nft.title)
-        return None
-
-    # Search eBay for sold items
     ebay_items = search_sold_items(nft.title)
 
     if not ebay_items:
         logger.debug("No eBay results for: %s", nft.title)
         return None
 
-    # Score all eBay items with the multi-signal matcher
     scored_matches = find_scored_matches(
         nft,
         ebay_items,
@@ -70,45 +119,37 @@ def analyze_single_nft(nft: NFTListing) -> ArbitrageOpportunity | None:
     )
 
     if not scored_matches:
-        logger.debug("No confident matches for: %s", nft.title)
+        logger.debug("No confident eBay matches for: %s", nft.title)
         return None
 
-    # Extract the confirmed matches
     confirmed_items = [sm.ebay_item for sm in scored_matches]
 
     if len(confirmed_items) < EBAY_SOLD_SAMPLE_MIN:
         logger.debug(
-            "Not enough confident matches for '%s': %d < %d",
-            nft.title[:50],
-            len(confirmed_items),
-            EBAY_SOLD_SAMPLE_MIN,
+            "Not enough eBay matches for '%s': %d < %d",
+            nft.title[:50], len(confirmed_items), EBAY_SOLD_SAMPLE_MIN,
         )
         return None
 
-    # Calculate average sold price from confirmed matches
     prices = [item.sold_price_eur for item in confirmed_items]
     avg_price = sum(prices) / len(prices)
 
-    # Calculate average confidence
     avg_confidence = sum(
         sm.match_result.total_score for sm in scored_matches
     ) / len(scored_matches)
 
-    # Calculate profit
     profit_pct = calculate_profit_percent(nft.price_eur, avg_price)
 
     if profit_pct < MIN_PROFIT_PERCENT:
         logger.debug(
-            "Profit %.1f%% below threshold %.1f%% for: %s",
-            profit_pct,
-            MIN_PROFIT_PERCENT,
-            nft.title[:50],
+            "eBay profit %.1f%% below threshold for: %s",
+            profit_pct, nft.title[:50],
         )
         return None
 
     ebay_url = build_ebay_search_url(nft.title)
 
-    opportunity = ArbitrageOpportunity(
+    return ArbitrageOpportunity(
         nft=nft,
         ebay_avg_price_eur=avg_price,
         ebay_sold_count=len(confirmed_items),
@@ -119,8 +160,48 @@ def analyze_single_nft(nft: NFTListing) -> ArbitrageOpportunity | None:
         scored_matches=scored_matches,
     )
 
-    logger.info("ARBITRAGE FOUND: %s", opportunity)
-    return opportunity
+
+def analyze_single_nft(nft: NFTListing) -> ArbitrageOpportunity | None:
+    """Analyze a single NFT for arbitrage potential.
+
+    Strategy:
+    1. Try PriceCharting first (fast, reliable)
+    2. If PriceCharting finds an opportunity, also try eBay to enrich
+    3. If PriceCharting fails/no match, fall back to eBay scraping
+    """
+    if nft.price_eur <= 0:
+        logger.debug("Skipping NFT with zero EUR price: %s", nft.title)
+        return None
+
+    pc_result = None
+    ebay_result = None
+
+    # Stage 1: PriceCharting lookup
+    if PRICECHARTING_ENABLED:
+        pc_result = _analyze_with_pricecharting(nft)
+        time.sleep(REQUEST_DELAY)
+
+    # Stage 2: eBay scraping
+    # Run eBay if: no PC result, or PC found opportunity (enrich with eBay data)
+    if pc_result is None:
+        ebay_result = _analyze_with_ebay(nft)
+        if ebay_result and pc_result is None:
+            return ebay_result
+    else:
+        # PC found opportunity — try eBay to add match evidence
+        ebay_result = _analyze_with_ebay(nft)
+        if ebay_result:
+            # Merge: use eBay sold data + PC price data
+            ebay_result.pc_matched_price_usd = pc_result.pc_matched_price_usd
+            ebay_result.pc_product_name = pc_result.pc_product_name
+            ebay_result.pc_url = pc_result.pc_url
+            ebay_result.pc_match_score = pc_result.pc_match_score
+            return ebay_result
+        else:
+            # No eBay data — use PC-only result
+            return pc_result
+
+    return ebay_result
 
 
 def _insured_value_ratio(nft: NFTListing) -> float:
@@ -140,12 +221,11 @@ def _insured_value_ratio(nft: NFTListing) -> float:
 def scan_for_arbitrage(listings: list[NFTListing]) -> list[ArbitrageOpportunity]:
     """Scan all NFT listings for arbitrage opportunities.
 
-    Prioritizes listings where insured_value / ME_price ratio is highest
-    (most likely to be profitable). This avoids wasting eBay queries on
-    cards that are overpriced on ME.
+    Uses PriceCharting as primary price source with eBay as fallback.
+    Prioritizes listings where insured_value / ME_price ratio is highest.
 
     Args:
-        listings: List of NFT listings from Magic Eden.
+        listings: List of NFT listings from Magic Eden / Phygitals.
 
     Returns:
         List of ArbitrageOpportunity, sorted by profit percentage (descending).
@@ -159,9 +239,10 @@ def scan_for_arbitrage(listings: list[NFTListing]) -> list[ArbitrageOpportunity]
         reverse=True,
     )
 
+    price_source = "PriceCharting + eBay" if PRICECHARTING_ENABLED else "eBay only"
     logger.info(
-        "Scanning %d listings for arbitrage (sorted by insured value ratio)...",
-        len(sorted_listings),
+        "Scanning %d listings for arbitrage (%s, sorted by IV ratio)...",
+        len(sorted_listings), price_source,
     )
 
     for i, nft in enumerate(sorted_listings, 1):
@@ -175,12 +256,16 @@ def scan_for_arbitrage(listings: list[NFTListing]) -> list[ArbitrageOpportunity]
         if result:
             result.insured_value_ratio = ratio
             opportunities.append(result)
+            pc_info = ""
+            if result.pc_matched_price_usd > 0:
+                pc_info = f" PC=${result.pc_matched_price_usd:.0f}"
             logger.info(
-                ">>> OPPORTUNITY #%d: +%.1f%% (confidence: %.0f%%, IV ratio: %.2f) on '%s'",
+                ">>> OPPORTUNITY #%d: +%.1f%% (confidence: %.0f%%, IV: %.2f%s) on '%s'",
                 len(opportunities),
                 result.profit_percent,
                 result.match_confidence * 100,
                 ratio,
+                pc_info,
                 nft.title[:50],
             )
 

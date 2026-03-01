@@ -41,6 +41,10 @@ COINGECKO_API_URL = "https://api.coingecko.com/api/v3/simple/price"
 # ExchangeRate-API for USD->EUR
 EXCHANGERATE_API_URL = "https://open.er-api.com/v6/latest/USD"
 
+# --- PriceCharting ---
+PRICECHARTING_ENABLED = os.getenv("PRICECHARTING_ENABLED", "1") == "1"
+PRICECHARTING_MIN_MATCH_SCORE = float(os.getenv("PRICECHARTING_MIN_MATCH_SCORE", "0.35"))
+
 # --- Arbitrage ---
 MIN_PROFIT_PERCENT = float(os.getenv("MIN_PROFIT_PERCENT", "30"))
 SCAN_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))

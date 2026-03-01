@@ -165,13 +165,21 @@ class ArbitrageOpportunity:
     match_confidence: float = 0.0
     scored_matches: list[ScoredEbayMatch] = field(default_factory=list)
     insured_value_ratio: float = 0.0  # insured_value / me_price (>1.2 = good signal)
+    # PriceCharting data (if available)
+    pc_matched_price_usd: float = 0.0   # Grade-matched market price from PriceCharting
+    pc_product_name: str = ""            # Matched product on PriceCharting
+    pc_url: str = ""                     # PriceCharting product page URL
+    pc_match_score: float = 0.0          # How well the PC product matched (0–1)
 
     def __str__(self) -> str:
+        pc_str = ""
+        if self.pc_matched_price_usd > 0:
+            pc_str = f"\n  PC price:   ${self.pc_matched_price_usd:.2f} ({self.pc_product_name})"
         return (
             f"[{self.profit_percent:+.1f}%] {self.nft.title}\n"
             f"  Magic Eden: \u20ac{self.nft.price_eur:.2f}\n"
             f"  eBay avg:   \u20ac{self.ebay_avg_price_eur:.2f} ({self.ebay_sold_count} sales)\n"
-            f"  Confidence: {self.match_confidence:.0%}\n"
+            f"  Confidence: {self.match_confidence:.0%}{pc_str}\n"
             f"  ME link:    {self.nft.magic_eden_url}\n"
             f"  eBay link:  {self.ebay_search_url}"
         )

@@ -58,7 +58,7 @@ def run_agent_scan(count: int = MAX_NFT_COUNT, threshold: float = 20.0) -> dict:
 
     results = []
     for i, opp in enumerate(top10, 1):
-        results.append({
+        entry = {
             "rang": i,
             "karte": opp.nft.title,
             "buy_preis_eur": round(opp.nft.price_eur, 2),
@@ -72,7 +72,12 @@ def run_agent_scan(count: int = MAX_NFT_COUNT, threshold: float = 20.0) -> dict:
             "sell_plattform": "eBay.de",
             "magic_eden_link": opp.nft.magic_eden_url,
             "ebay_suche_link": opp.ebay_search_url,
-        })
+        }
+        if opp.pc_matched_price_usd > 0:
+            entry["pricecharting_preis_usd"] = round(opp.pc_matched_price_usd, 2)
+            entry["pricecharting_produkt"] = opp.pc_product_name
+            entry["pricecharting_link"] = opp.pc_url
+        results.append(entry)
 
     return {
         "status": "ok",

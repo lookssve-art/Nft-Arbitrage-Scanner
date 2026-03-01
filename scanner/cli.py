@@ -47,7 +47,7 @@ def print_banner() -> None:
     banner.append("\n")
     banner.append("Collector Crypt + Phygitals -> eBay Germany", style="dim")
     banner.append("\n")
-    banner.append("Multi-Signal Matching | Confidence Scoring | Live Prices", style="dim")
+    banner.append("PriceCharting + eBay Matching | Confidence Scoring | Live Prices", style="dim")
     console.print(Panel(banner, border_style="cyan"))
 
 
@@ -81,31 +81,32 @@ def print_results(opportunities: list) -> None:
 
     table = Table(title="Arbitrage Opportunities", show_lines=True)
     table.add_column("#", style="dim", width=4)
-    table.add_column("Card Title", style="white", max_width=45)
-    table.add_column("Source", style="dim", width=10)
-    table.add_column("Buy Price", style="cyan", justify="right")
-    table.add_column("FMV", style="dim cyan", justify="right")
+    table.add_column("Card Title", style="white", max_width=40)
+    table.add_column("Src", style="dim", width=4)
+    table.add_column("Buy", style="cyan", justify="right")
+    table.add_column("PC Price", style="magenta", justify="right")
     table.add_column("eBay Avg", style="green", justify="right")
     table.add_column("Profit %", style="bold green", justify="right")
     table.add_column("Matches", justify="center")
-    table.add_column("Confidence", justify="center")
+    table.add_column("Conf.", justify="center")
 
     for i, opp in enumerate(opportunities, 1):
         profit_style = "bold green" if opp.profit_percent >= 50 else "green"
         conf_pct = opp.match_confidence * 100
         conf_style = "bold green" if conf_pct >= 90 else "yellow" if conf_pct >= 80 else "red"
-        iv_str = f"${opp.nft.insured_value_usd:.0f}" if opp.nft.insured_value_usd > 0 else "-"
+        pc_str = f"${opp.pc_matched_price_usd:.0f}" if opp.pc_matched_price_usd > 0 else "-"
         source = opp.nft.source.split("/")[0] if "/" in opp.nft.source else opp.nft.source
         source_short = {"collector_crypt": "CC", "phygitals": "PG"}.get(source, source[:6])
+        ebay_str = f"\u20ac{opp.ebay_avg_price_eur:.2f}" if opp.ebay_sold_count > 0 else "-"
         table.add_row(
             str(i),
-            opp.nft.title[:45],
+            opp.nft.title[:40],
             source_short,
             f"\u20ac{opp.nft.price_eur:.2f}",
-            iv_str,
-            f"\u20ac{opp.ebay_avg_price_eur:.2f}",
+            pc_str,
+            ebay_str,
             Text(f"+{opp.profit_percent:.1f}%", style=profit_style),
-            str(opp.ebay_sold_count),
+            str(opp.ebay_sold_count) if opp.ebay_sold_count > 0 else "-",
             Text(f"{conf_pct:.0f}%", style=conf_style),
         )
 
@@ -115,9 +116,18 @@ def print_results(opportunities: list) -> None:
     console.print("\n[bold]Detailed Links & Match Evidence:[/bold]")
     for i, opp in enumerate(opportunities, 1):
         console.print(f"\n[cyan]#{i}[/cyan] {opp.nft.title}")
-        console.print(f"  Magic Eden: {opp.nft.magic_eden_url}")
+        console.print(f"  Buy: {opp.nft.magic_eden_url}")
         console.print(f"  eBay Search: {opp.ebay_search_url}")
+        if opp.pc_url:
+            console.print(f"  PriceCharting: {opp.pc_url}")
         console.print(f"  Confidence: {opp.match_confidence:.0%}")
+
+        # Show PriceCharting match info
+        if opp.pc_matched_price_usd > 0:
+            console.print(
+                f"  [magenta]PC Match: '{opp.pc_product_name}' "
+                f"-> ${opp.pc_matched_price_usd:.2f} (score: {opp.pc_match_score:.0%})[/magenta]"
+            )
 
         # Show parsed NFT attributes
         attrs = opp.nft.attributes
@@ -163,6 +173,12 @@ def save_results(opportunities: list, output_path: Path | None = None) -> Path:
                 "match_confidence": round(opp.match_confidence, 3),
                 "magic_eden_url": opp.nft.magic_eden_url,
                 "ebay_search_url": opp.ebay_search_url,
+                "pricecharting": {
+                    "matched_price_usd": opp.pc_matched_price_usd,
+                    "product_name": opp.pc_product_name,
+                    "url": opp.pc_url,
+                    "match_score": opp.pc_match_score,
+                },
                 "nft_attributes": {
                     "pokemon_name": opp.nft.attributes.pokemon_name,
                     "variant": opp.nft.attributes.variant,
