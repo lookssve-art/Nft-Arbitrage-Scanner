@@ -60,6 +60,9 @@ DEFAULT_HEADERS = {
     "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
 }
 
+# --- Discord ---
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+
 # Rate limiting: pause between requests (seconds)
 REQUEST_DELAY = 1.0
 EBAY_REQUEST_DELAY = 2.0
